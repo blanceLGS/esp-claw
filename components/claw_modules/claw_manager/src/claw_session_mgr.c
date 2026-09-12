@@ -1267,8 +1267,10 @@ esp_err_t claw_session_mgr_delete_chat_session(uint32_t agent_id,
 {
     char chat_key[CLAW_SESSION_MGR_KEY_SIZE];
     char session_id[CLAW_SESSION_MGR_ID_SIZE];
+    char now_current[CLAW_SESSION_MGR_ALIAS_MAX + 1];
     claw_session_mgr_alias_map_t map;
     bool deleted_any = false;
+    bool was_current = false;
     size_t alias_index = CLAW_SESSION_MGR_MAX_SESSIONS;
     esp_err_t err;
 
@@ -1278,6 +1280,7 @@ esp_err_t claw_session_mgr_delete_chat_session(uint32_t agent_id,
     if (out_alias && out_alias_size > 0) {
         out_alias[0] = '\0';
     }
+    now_current[0] = '\0';
     if (!s_session_mgr.configured || !s_session_mgr.mutex) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -1299,19 +1302,35 @@ esp_err_t claw_session_mgr_delete_chat_session(uint32_t agent_id,
         }
         if (alias_index == CLAW_SESSION_MGR_MAX_SESSIONS) {
             err = ESP_ERR_NOT_FOUND;
-        } else if (strcmp(map.current_alias, alias) == 0) {
-            err = ESP_ERR_INVALID_STATE;
-        } else if (!s_session_mgr.delete_session) {
+        } else if (map.session_count <= 1) {
+            /* Keep one session so the chat always has a history target. */
             err = ESP_ERR_NOT_SUPPORTED;
+        } else {
+            was_current = (strcmp(map.current_alias, alias) == 0);
+            if (was_current) {
+                /* Allow deleting the active session: switch current to another. */
+                for (size_t i = 0; i < map.session_count; i++) {
+                    if (strcmp(map.sessions[i], alias) != 0) {
+                        strlcpy(map.current_alias, map.sessions[i], sizeof(map.current_alias));
+                        break;
+                    }
+                }
+            }
         }
     }
     if (err == ESP_OK) {
         err = claw_session_mgr_build_alias_session_id(chat_key, alias, session_id, sizeof(session_id), NULL);
     }
-    if (err == ESP_OK) {
+    if (err == ESP_OK && s_session_mgr.delete_session) {
         err = s_session_mgr.delete_session(session_id, &deleted_any, s_session_mgr.delete_session_ctx);
         if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Delete session history failed for %s: %s", session_id, esp_err_to_name(err));
+            /* Drop the alias anyway so /session list stays usable. Orphaned
+             * history files are less harmful than an undeletable list entry. */
+            ESP_LOGW(TAG,
+                     "Delete session history failed for %s: %s; removing alias anyway",
+                     session_id,
+                     esp_err_to_name(err));
+            err = ESP_OK;
         }
     }
     if (err == ESP_OK) {
@@ -1320,6 +1339,14 @@ esp_err_t claw_session_mgr_delete_chat_session(uint32_t agent_id,
         }
         map.session_count--;
         map.sessions[map.session_count][0] = '\0';
+        if (was_current && !claw_session_mgr_alias_exists(&map, map.current_alias)) {
+            if (map.session_count > 0) {
+                strlcpy(map.current_alias, map.sessions[0], sizeof(map.current_alias));
+            } else {
+                map.current_alias[0] = '\0';
+            }
+        }
+        strlcpy(now_current, map.current_alias, sizeof(now_current));
         err = claw_session_mgr_write_mapping_locked(&map);
     }
     xSemaphoreGiveRecursive(s_session_mgr.mutex);
@@ -1329,9 +1356,11 @@ esp_err_t claw_session_mgr_delete_chat_session(uint32_t agent_id,
             strlcpy(out_alias, alias, out_alias_size);
         }
         ESP_LOGI(TAG,
-                 "Deleted chat session %s alias=%s history_deleted=%s",
+                 "Deleted chat session %s alias=%s was_current=%d now_current=%s history_deleted=%s",
                  chat_key,
                  alias,
+                 was_current ? 1 : 0,
+                 now_current[0] ? now_current : "(none)",
                  deleted_any ? "true" : "false");
     }
 
