@@ -23,6 +23,18 @@ idf.py build
 idf.py flash monitor
 ```
 
+Windows (ESP-IDF PowerShell profile, example paths):
+
+```powershell
+. "C:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1"
+cd application\edge_agent
+$env:IDF_CCACHE_ENABLE = "0"   # optional; shortens command lines
+idf.py bmgr -c ./boards -b waveshare_ESP32_S3_RLCD_4_2
+idf.py build
+```
+
+If ninja fails with `CreateProcess: The parameter is incorrect` (command line too long), keep `CMAKE_NINJA_FORCE_RESPONSE_FILE ON` in `application/edge_agent/CMakeLists.txt` (already set). Do not remove it for Windows builds.
+
 Docs site:
 
 ```bash
@@ -62,8 +74,9 @@ The main entry point is `application/edge_agent/main/main.c`.
 - **Capabilities** (`components/claw_capabilities/`): concrete agent capabilities such as Lua execution, files, IM platforms, MCP, skill management, router management, scheduler, session management, time, HTTP requests, web search, system, and LLM inspection.
 - **Memory** (`components/claw_modules/claw_memory/`): session history, profile/long-term memory providers, memory persistence, request gating, and stage notes.
 - **Skills** (`components/claw_modules/claw_skill/`, component `skills/` directories): user-facing skill documents and activation state.
-- **Lua modules** (`components/lua_modules/`): Lua drivers and higher-level modules for hardware, media, HTTP server, storage, threading, JSON, board manager, and capability calls.
+- **Lua modules** (`components/lua_modules/`): Lua drivers and higher-level modules for hardware, media, HTTP server, storage, threading, JSON, board manager, capability calls, TCP/UDP sockets (`lua_module_socket`), and WebSocket client (`lua_module_websocket`).
 - **Board manager** (`application/edge_agent/boards/`): board metadata, peripheral YAML, board setup code, board defaults, optional local components, and optional board FATFS overlays.
+- **Wi-Fi manager** (`components/common/wifi_manager/`): STA connect/reconnect, SoftAP provisioning, and AP↔STA internet sharing via NAPT (see below).
 - **FATFS images** (`application/edge_agent/fatfs_image/`): build-time source trees for the read-only SYSTEM image and writable DATA seed image.
 - **HTTP config service** (`application/edge_agent/components/http_server/`): local device configuration server and embedded frontend.
 
@@ -88,6 +101,35 @@ The firmware uses two logical filesystem roots, configured at boot through `claw
 - Specs (`.agents/spec/`):
   - lua module spec: [lua-module-spec.md](.agents/spec/lua-module-spec.md)
   - claw skill spec: [claw-skill-spec.md](.agents/spec/claw-skill-spec.md)
+
+### Session slash commands must bypass the agent path
+
+`/session new|list|switch|delete` is handled **locally** in `claw_event_router` before default agent routing (`claw_event_router_parse_local_session_command` / `claw_event_router_handle_local_session_command` in `components/claw_modules/claw_event_router/src/claw_event_router.c`). It calls capability `session_command` (`components/claw_capabilities/cap_session_mgr/`) and replies over the IM outbound path.
+
+Do **not** route `/session` through the LLM. When session history is oversized, `claw_memory_request_gate_callback` rejects agent requests for that session and tells the user to use `/session`; routing the recovery command through the agent would block the only escape path.
+
+Session alias maps live under DATA `sessions/chat_map/`. Delete history also removes skill session state via `app_claw_delete_session_history`.
+
+Session history compaction (`claw_memory_session.c`):
+- Cap: `CLAW_MEMORY_SESSION_SIZE_LIMIT` 150 KiB; `CLAW_MEMORY_SESSION_MAX_TURNS` 24 complete turns; `CLAW_MEMORY_SESSION_MIN_KEEP_TURNS` 6.
+- Always strip tool records (keep at most `CLAW_MEMORY_SESSION_COMPACT_TOOL_TURNS`).
+- If still oversized or turn count exceeds the cap, drop **oldest complete turns** (user + assistant_final) until under limit, never below the min keep window.
+- Only block the session and ask for `/session new` when even the min keep window cannot fit.
+
+### SoftAP internet sharing (NAPT)
+
+AP clients can use the internet only after STA is connected. `wifi_manager` enables this on `IP_EVENT_STA_GOT_IP`:
+
+- `esp_netif_set_default_netif(STA)`
+- AP DHCP offers STA DNS (fallback `8.8.8.8`)
+- `esp_netif_napt_enable(AP)` when `CONFIG_LWIP_IP_FORWARD` and `CONFIG_LWIP_IPV4_NAPT` are set in `application/edge_agent/sdkconfig.defaults`
+
+If AP is up but cannot reach the internet, check STA connectivity first, then NAPT logs (`AP NAPT enabled`), then client DHCP/DNS renewal.
+
+### waveshare_ESP32_S3_RLCD_4_2 board notes
+
+- Panel is registered as `type: custom` in `board_devices.yaml`. `setup_device.c` must use generated custom types from `gen_board_device_custom.h` (`dev_custom_display_lcd_config_t`), not `dev_display_lcd_*`.
+- Keep `set(CMAKE_NINJA_FORCE_RESPONSE_FILE ON)` in project `CMakeLists.txt` for Windows builds.
 
 ## General Engineering Rules
 
@@ -137,6 +179,11 @@ The firmware uses two logical filesystem roots, configured at boot through `claw
 - Lua module registration: `components/common/app_claw/app_lua_modules.c`
 - App config schema/storage: `application/edge_agent/components/app_config/`
 - Board definitions: `application/edge_agent/boards/`
+- Session manager cap: `components/claw_capabilities/cap_session_mgr/src/cap_session_mgr.c`
+- Event router (incl. local `/session`): `components/claw_modules/claw_event_router/src/claw_event_router.c`
+- Wi-Fi / SoftAP NAPT: `components/common/wifi_manager/wifi_manager.c`
+- High-level socket Lua: `components/lua_modules/lua_module_socket/`
+- WebSocket client Lua: `components/lua_modules/lua_module_websocket/`
 
 ## AGENTS.md Best-Practice Notes
 

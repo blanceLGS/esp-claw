@@ -26,6 +26,7 @@
 static const char *TAG = "wifi_manager";
 
 #define WIFI_CONNECTED_BIT BIT0
+#define WM_DHCPS_OFFER_DNS 0x02
 
 #ifndef CONFIG_APP_WIFI_AP_SSID_PREFIX
 #define CONFIG_APP_WIFI_AP_SSID_PREFIX "esp-claw"
@@ -199,6 +200,74 @@ static void refresh_ap_ip_str(void)
     }
 }
 
+/*
+ * SoftAP clients need a reachable DNS. Copy the STA resolver into the AP
+ * DHCP offer so phones/laptops on the AP can resolve names through NAPT.
+ */
+static void wifi_manager_ap_relay_dns(void)
+{
+    esp_netif_dns_info_t dns = {0};
+    uint8_t offer_dns = WM_DHCPS_OFFER_DNS;
+    esp_err_t err;
+
+    if (!s_ap_netif || !s_sta_netif) {
+        return;
+    }
+
+    err = esp_netif_get_dns_info(s_sta_netif, ESP_NETIF_DNS_MAIN, &dns);
+    if (err != ESP_OK || dns.ip.u_addr.ip4.addr == 0) {
+        /* Fall back to a public resolver if STA DNS is not ready. */
+        dns.ip.u_addr.ip4.addr = ESP_IP4TOADDR(8, 8, 8, 8);
+        dns.ip.type = ESP_IPADDR_TYPE_V4;
+    }
+
+    esp_netif_dhcps_stop(s_ap_netif);
+    esp_netif_dhcps_option(s_ap_netif,
+                           ESP_NETIF_OP_SET,
+                           ESP_NETIF_DOMAIN_NAME_SERVER,
+                           &offer_dns,
+                           sizeof(offer_dns));
+    esp_netif_set_dns_info(s_ap_netif, ESP_NETIF_DNS_MAIN, &dns);
+    esp_netif_dhcps_start(s_ap_netif);
+    ESP_LOGI(TAG, "AP DHCP DNS set to " IPSTR, IP2STR(&dns.ip.u_addr.ip4));
+}
+
+static void wifi_manager_ap_set_napt(bool enable)
+{
+    if (!s_ap_netif) {
+        return;
+    }
+#if defined(CONFIG_LWIP_IP_FORWARD) && defined(CONFIG_LWIP_IPV4_NAPT)
+    esp_err_t err = enable ? esp_netif_napt_enable(s_ap_netif) : esp_netif_napt_disable(s_ap_netif);
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "AP NAPT %s failed: %s", enable ? "enable" : "disable", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "AP NAPT %s", enable ? "enabled" : "disabled");
+    }
+#else
+    if (enable) {
+        ESP_LOGW(TAG, "AP internet sharing unavailable: enable CONFIG_LWIP_IP_FORWARD and CONFIG_LWIP_IPV4_NAPT");
+    }
+#endif
+}
+
+static void wifi_manager_enable_ap_internet_share(void)
+{
+    if (!s_ap_netif || !s_sta_netif) {
+        return;
+    }
+    /* Route AP clients out through STA. */
+    esp_netif_set_default_netif(s_sta_netif);
+    wifi_manager_ap_relay_dns();
+    wifi_manager_ap_set_napt(true);
+}
+
+static void wifi_manager_disable_ap_internet_share(void)
+{
+    wifi_manager_ap_set_napt(false);
+}
+
 static void reset_sta_runtime_state(void)
 {
     strlcpy(s_ip_addr, "0.0.0.0", sizeof(s_ip_addr));
@@ -322,6 +391,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             strlcpy(s_ip_addr, "0.0.0.0", sizeof(s_ip_addr));
             if (s_connected) {
                 s_connected = false;
+                wifi_manager_disable_ap_internet_share();
                 notify_state_changed(false);
             }
             if (!s_sta_configured) {
@@ -359,6 +429,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         if (s_reconnect_timer) esp_timer_stop(s_reconnect_timer);
         if (wifi_manager_close_on_sta() && s_ap_active) {
             ESP_LOGI(TAG, "STA connected, closing AP per ap_behavior=close_on_sta");
+            wifi_manager_disable_ap_internet_share();
             esp_err_t ap_err = esp_wifi_set_mode(WIFI_MODE_STA);
             if (ap_err == ESP_OK) {
                 s_ap_active = false;
@@ -366,6 +437,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             } else {
                 ESP_LOGW(TAG, "Failed to switch to STA-only mode: %s", esp_err_to_name(ap_err));
             }
+        } else if (s_ap_active) {
+            wifi_manager_enable_ap_internet_share();
         }
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         notify_state_changed(true);
