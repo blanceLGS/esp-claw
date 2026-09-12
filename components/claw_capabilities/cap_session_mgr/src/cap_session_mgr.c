@@ -284,6 +284,28 @@ static void cap_session_mgr_write_storage_error(const char *action,
              ctx->chat_id,
              alias ? alias : "",
              esp_err_to_name(err));
+
+    if (err == ESP_ERR_NO_MEM) {
+        cap_session_mgr_write_message(output,
+                                      output_size,
+                                      "Session command failed: too many sessions in this chat. "
+                                      "Delete an unused session first with /session delete <name>.");
+        return;
+    }
+    if (err == ESP_ERR_INVALID_RESPONSE) {
+        cap_session_mgr_write_message(output,
+                                      output_size,
+                                      "Session command failed: session mapping file is corrupted. "
+                                      "Create a new session or delete the old mapping under the session chat_map directory.");
+        return;
+    }
+    if (err == ESP_ERR_INVALID_SIZE) {
+        cap_session_mgr_write_message(output,
+                                      output_size,
+                                      "Session command failed: session path is too long for storage.");
+        return;
+    }
+
     cap_session_mgr_write_message(output,
                                   output_size,
                                   "Session command failed: unable to access session storage.");

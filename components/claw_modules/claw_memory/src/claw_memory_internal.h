@@ -24,6 +24,10 @@
 #define CLAW_MEMORY_COMPACT_CHANGE_THRESHOLD     5
 #define CLAW_MEMORY_COMPACT_SIZE_THRESHOLD       (32 * 1024)
 #define CLAW_MEMORY_SESSION_SIZE_LIMIT           (150 * 1024)
+/* Always retain at least this many complete turns after size-based eviction. */
+#define CLAW_MEMORY_SESSION_MIN_KEEP_TURNS       6
+/* Hard cap on complete turns; oldest complete turns are dropped first. */
+#define CLAW_MEMORY_SESSION_MAX_TURNS            24
 #define CLAW_MEMORY_RECALL_DEFAULT_LIMIT         8
 #define CLAW_MEMORY_RECORDS_FILE                 "memory_records.jsonl"
 #define CLAW_MEMORY_INDEX_FILE                   "memory_index.json"
