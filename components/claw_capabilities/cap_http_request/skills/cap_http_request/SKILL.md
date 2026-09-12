@@ -44,7 +44,31 @@ Use this skill when the task needs a direct HTTP or HTTPS request to a known end
 
 - `url` is required and must start with `http://` or `https://`.
 - `method` defaults to `GET`.
-- `body` is only valid for methods that accept a request body.
+- `body` is only valid for methods that accept a request body and is mutually exclusive with `multipart`.
+- `multipart` builds `multipart/form-data` for uploads (POST/PUT/PATCH). Example:
+
+```json
+{
+  "url": "https://api.example.com/v1/upload",
+  "method": "POST",
+  "multipart": {
+    "fields": {
+      "note": "from device"
+    },
+    "files": [
+      {
+        "name": "file",
+        "path": "/fatfs/photo.jpg",
+        "filename": "photo.jpg",
+        "content_type": "image/jpeg"
+      }
+    ]
+  }
+}
+```
+
+- `multipart.fields` is a string map. `multipart.files` entries require `name` and device `path`; optional `filename` and `content_type` (default `application/octet-stream`).
+- Total multipart body is capped at 256 KiB (max 16 fields / 8 files).
 - `save_path` is optional. When present, the response body is streamed directly to this file and is not returned in memory.
 - `max_body_bytes` applies only when returning the response body as text.
 - `max_file_bytes` is optional and applies only when `save_path` is present.
@@ -91,4 +115,34 @@ Use this skill when the task needs a direct HTTP or HTTPS request to a known end
   "save_path": "/spiffs/file.bin",
   "max_file_bytes": 10485760
 }
+```
+
+```json
+{
+  "url": "https://api.example.com/upload",
+  "method": "POST",
+  "multipart": {
+    "fields": { "title": "demo" },
+    "files": [
+      { "name": "file", "path": "/fatfs/demo.txt", "filename": "demo.txt", "content_type": "text/plain" }
+    ]
+  }
+}
+```
+
+Lua can call the same capability:
+
+```lua
+local capability = require("capability")
+local ok, out = capability.call("http_request", {
+  url = "https://api.example.com/upload",
+  method = "POST",
+  multipart = {
+    fields = { title = "demo" },
+    files = {
+      { name = "file", path = "/fatfs/demo.txt", filename = "demo.txt", content_type = "text/plain" },
+    },
+  },
+})
+print(out)
 ```
