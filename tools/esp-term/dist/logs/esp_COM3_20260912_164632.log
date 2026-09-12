@@ -1,0 +1,327 @@
+# esp-term session log
+# started=2026-09-12T16:46:32 port=COM3 baud=115200 auto=True
+16:46:32.013 [sys] — logging → esp_COM3_20260912_164632.log —
+16:46:35.473 [rx] I (10281306) claw_event_router: processing event=stage-1000020-1789202784825 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:46:35.478 [rx] I (10281307) claw_core: tool_call request=1000020 name=lua_run_script args={"timeout_ms": 20000, "path": "/fatfs/skills/voice_loop/xf_wss_test.lua"}
+16:46:35.484 [rx] I (10281308) claw_event_router: event=stage-1000020-1789202784825 matched rule=agent_stage_im_notify actions=1
+16:46:35.525 [rx] I (10281311) cap_lua_async: Queued Lua async job dbb1da2c name=(unnamed) exclusive=none timeout_ms=20000 log_bytes=4096 path=/fatfs/skills/voice_loop/xf_wss_test.lua
+16:46:35.529 [rx] [xf_wss] connecting...
+16:46:35.530 [rx] I (10281347) websocket_client: Started
+16:46:36.081 [rx] E (10281875) transport_ws: Sec-WebSocket-Accept not found
+16:46:36.083 [rx] E (10281875) websocket_client: esp_transport_connect() failed with -1, transport_error=ESP_OK, tls_error_code=0, tls_flags=0, esp_ws_handshake_status_code=401, errno=119
+16:46:36.084 [rx] E (10281877) lua_module_websocket: websocket transport error
+16:46:36.086 [rx] W (10281879) lua_module_websocket: disconnected from wss://iat.xf-yun.com/v1?authorization=dGVzdA==&date=Tue%2C%2014%20May%202024%2008%3A46%3A48%20GMT&host=iat.xf-yun.com
+16:46:36.618 [rx] I (10282439) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:46:45.566 [rx] W (10291428) lua_module_websocket: connect timeout for wss://iat.xf-yun.com/v1?authorization=dGVzdA==&date=Tue%2C%2014%20May%202024%2008%3A46%3A48%20GMT&host=iat.xf-yun.com
+16:46:45.568 [rx] W (10291429) websocket_client: Client was not started
+16:46:45.571 [rx] [xf_wss] connect failed:	connect timeout
+16:46:45.632 [rx] I (10291435) claw_core: tool_result request=1000020 name=lua_run_script err=ESP_OK output=[xf_wss] connecting...
+16:46:45.633 [rx] [xf_wss] connect failed:	connect timeout
+16:46:45.633 [rx] 
+16:46:45.817 [rx] I (10291623) claw_core: context_loaded request=1000020 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:46:45.820 [rx] I (10291627) claw_core: context_loaded request=1000020 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:46:45.948 [rx] I (10291720) claw_core: context_loaded request=1000020 provider=Skills List context_kind=system_prompt context_len=2632
+16:46:45.952 [rx] I (10291752) claw_core: context_loaded request=1000020 provider=cap Tools context_kind=tools context_len=11903
+16:47:08.920 [rx] I (10314701) claw_event_router: processing event=stage-1000020-1789202818219 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:47:08.922 [rx] I (10314701) claw_core: tool_call request=1000020 name=spawn_agent args={"background": true, "prompt": "请创建讯飞 ASR WebSocket 单点测试脚本，并验证是...
+16:47:09.014 [rx] I (10314703) claw_event_router: event=stage-1000020-1789202818219 matched rule=agent_stage_im_notify actions=1
+16:47:09.078 [rx] E (10314912) cap_agent_mgr: spawn_agent failed: ESP_ERR_NO_MEM
+16:47:09.082 [rx] I (10314913) claw_core: tool_result request=1000020 name=spawn_agent err=ESP_ERR_NO_MEM output=Error: spawn_agent failed: ESP_ERR_NO_MEM
+16:47:09.448 [rx] I (10315186) claw_core: context_loaded request=1000020 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:47:09.451 [rx] I (10315190) claw_core: context_loaded request=1000020 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:47:09.454 [rx] I (10315284) claw_core: context_loaded request=1000020 provider=Skills List context_kind=system_prompt context_len=2632
+16:47:09.480 [rx] I (10315316) claw_core: context_loaded request=1000020 provider=cap Tools context_kind=tools context_len=11903
+16:47:09.911 [rx] I (10315715) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:47:36.177 [rx] E (10341976) esp-tls-mbedtls: read error :-0x0050
+16:47:36.210 [rx] E (10341976) transport_base: esp_tls_conn_read error, errno=Connection reset by peer
+16:47:36.244 [rx] E (10341977) llm_http: HTTP perform failed: ESP_ERR_HTTP_FETCH_HEADER
+16:47:36.272 [rx] E (10341980) claw_core_llm: chat_messages: runtime chat failed err=0x7004
+16:47:36.290 [rx] E (10341980) claw_core: request=1000020 failed: HTTP request failed: ESP_ERR_HTTP_FETCH_HEADER
+16:47:38.090 [rx] I (10343931) claw_event_router: processing event=agent-1000020-1789202847450 type=out_message source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:47:38.101 [rx] I (10343933) claw_event_router: event=agent-1000020-1789202847450 matched rule=agent_out_message_send_message actions=1
+16:47:39.258 [rx] I (10345104) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:47:39.326 [rx] I (10345105) cap_im_feishu: Feishu text inbound chat=oc_b50ee494ba3d9b90be4e73976c7ec4b0 route=ou_225bc1815d5cc70f7caa6c68db3b24fb message=om_x100b656554683ca4b16e59cee759134
+16:47:39.329 [rx] I (10345106) claw_event_router: processing event=msg-1789202848005 type=message source=feishu_gateway channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:47:39.335 [rx] I (10345109) claw_event_router: event=msg-1789202848005 matched rule=im_any_message_working_reply actions=1
+16:47:40.286 [rx] I (10346128) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:47:40.295 [rx] I (10346129) claw_event_router: event=msg-1789202848005 matched rule=im_any_message_agent actions=1
+16:47:40.301 [rx] I (10346135) claw_memory: async extract job created request=1000021 session=chat:feishu:ou_225bc1815d5cc70f7caa6c68db3b24fb:default_01
+16:47:40.460 [rx] I (10346302) claw_core: context_cached request=1000021 provider=Session History context_kind=messages context_len=28429
+16:47:40.485 [rx] I (10346309) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:47:40.500 [rx] I (10346314) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:47:40.507 [rx] I (10346333) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:47:40.571 [rx] I (10346367) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:47:51.655 [rx] I (10357495) claw_event_router: processing event=stage-1000021-1789202861014 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:47:51.659 [rx] I (10357496) claw_core: tool_call request=1000021 name=read_file args={"path": "/fatfs/skills/voice_loop/xf_wss_test.lua"}
+16:47:51.667 [rx] I (10357497) claw_event_router: event=stage-1000021-1789202861014 matched rule=agent_stage_im_notify actions=1
+16:47:51.671 [rx] I (10357504) claw_core: tool_result request=1000021 name=read_file err=ESP_OK output=local websocket = require("websocket")
+16:47:51.674 [rx] 
+16:47:51.677 [rx] -- 测试 WSS 连接讯飞 IAT（用占位鉴权，只...
+16:47:51.967 [rx] I (10357769) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:47:51.975 [rx] I (10357774) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:47:51.979 [rx] I (10357796) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:47:52.043 [rx] I (10357830) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:47:52.764 [rx] I (10358626) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:48:34.780 [rx] I (10400614) claw_event_router: processing event=stage-1000021-1789202904133 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:48:34.798 [rx] I (10400615) claw_core: tool_call request=1000021 name=write_file args={"content": "-- 讯飞 ASR WebSocket 完整测试\n-- 鉴权参数\nlocal APPID      = \"da8ef6c...
+16:48:35.003 [rx] I (10400616) claw_event_router: event=stage-1000021-1789202904133 matched rule=agent_stage_im_notify actions=1
+16:48:35.012 [rx] I (10400789) claw_core: tool_result request=1000021 name=write_file err=ESP_OK output=OK: wrote 4508 bytes to /fatfs/skills/voice_loop/xf_asr_wss_test.lua
+16:48:35.204 [rx] I (10401006) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:48:35.229 [rx] I (10401011) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:48:35.245 [rx] I (10401029) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:48:35.261 [rx] I (10401062) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:48:35.941 [rx] I (10401739) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:48:56.675 [rx] I (10422522) cap_im_feishu: Feishu text inbound chat=oc_b50ee494ba3d9b90be4e73976c7ec4b0 route=ou_225bc1815d5cc70f7caa6c68db3b24fb message=om_x100b6565514e54a4b1424aa10d69d56
+16:48:56.685 [rx] I (10422522) claw_event_router: processing event=msg-1789202926041 type=message source=feishu_gateway channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:48:56.692 [rx] I (10422526) claw_event_router: event=msg-1789202926041 matched rule=im_any_message_working_reply actions=1
+16:48:57.841 [rx] I (10423642) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:48:57.855 [rx] I (10423643) claw_event_router: event=msg-1789202926041 matched rule=im_any_message_agent actions=1
+16:48:57.869 [rx] I (10423647) claw_core: inserted user input request=1000022 into inflight_request=1000021 session=chat:feishu:ou_225bc1815d5cc70f7caa6c68db3b24fb:default_01 depth=1
+16:49:08.041 [rx] W (10433880) llm_http: HTTP perform completed after caller abort
+16:49:08.050 [rx] E (10433883) claw_core_llm: chat_messages: runtime chat failed err=0x103
+16:49:08.236 [rx] I (10434045) claw_core: user_interrupt_triggered request=1000021 timing=in_llm_http_abort count=1 persisted=true
+16:49:08.240 [rx] I (10434054) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:49:08.242 [rx] I (10434058) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:49:08.245 [rx] I (10434077) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:49:08.310 [rx] I (10434109) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:49:21.594 [rx] I (10447422) claw_event_router: processing event=stage-1000021-1789202950941 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:49:21.600 [rx] I (10447422) claw_core: tool_call request=1000021 name=read_file args={"path": "/fatfs/skills/voice_loop/xf_asr_wss_test.lua"}
+16:49:21.607 [rx] I (10447425) claw_event_router: event=stage-1000021-1789202950941 matched rule=agent_stage_im_notify actions=1
+16:49:21.612 [rx] I (10447438) claw_core: tool_result request=1000021 name=read_file err=ESP_OK output=-- 讯飞 ASR WebSocket 完整测试
+16:49:21.617 [rx] -- 鉴权参数
+16:49:21.620 [rx] local APPID      = "da8ef6c7"
+16:49:21.625 [rx] local API_KEY...
+16:49:21.628 [rx] I (10447441) claw_core: tool_call request=1000021 name=read_file args={"path": "/fatfs/skills/voice_loop/xf_wss_test.lua"}
+16:49:21.631 [rx] I (10447449) claw_core: tool_result request=1000021 name=read_file err=ESP_OK output=local websocket = require("websocket")
+16:49:21.634 [rx] 
+16:49:21.636 [rx] -- 测试 WSS 连接讯飞 IAT（用占位鉴权，只...
+16:49:22.001 [rx] I (10447852) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:49:22.071 [rx] I (10447865) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:49:22.077 [rx] I (10447908) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:49:22.141 [rx] I (10447957) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:49:23.293 [rx] I (10449102) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:49:41.054 [rx] I (10466867) claw_event_router: processing event=stage-1000021-1789202970386 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:49:41.057 [rx] I (10466867) claw_core: tool_call request=1000021 name=lua_run_script args={"path": "/fatfs/skills/voice_loop/xf_wss_test.lua", "timeout_ms": 20000}
+16:49:41.059 [rx] I (10466869) claw_event_router: event=stage-1000021-1789202970386 matched rule=agent_stage_im_notify actions=1
+16:49:41.061 [rx] I (10466872) cap_lua_async: Queued Lua async job 46aa8c6f name=(unnamed) exclusive=none timeout_ms=20000 log_bytes=4096 path=/fatfs/skills/voice_loop/xf_wss_test.lua
+16:49:41.064 [rx] [xf_wss] connecting...
+16:49:41.066 [rx] I (10466907) websocket_client: Started
+16:49:41.630 [rx] E (10467483) transport_ws: Sec-WebSocket-Accept not found
+16:49:41.635 [rx] E (10467484) websocket_client: esp_transport_connect() failed with -1, transport_error=ESP_OK, tls_error_code=0, tls_flags=0, esp_ws_handshake_status_code=401, errno=119
+16:49:41.641 [rx] E (10467486) lua_module_websocket: websocket transport error
+16:49:41.720 [rx] W (10467488) lua_module_websocket: disconnected from wss://iat.xf-yun.com/v1?authorization=dGVzdA==&date=Tue%2C%2014%20May%202024%2008%3A46%3A48%20GMT&host=iat.xf-yun.com
+16:49:42.210 [rx] I (10468043) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:49:51.134 [rx] W (10476982) lua_module_websocket: connect timeout for wss://iat.xf-yun.com/v1?authorization=dGVzdA==&date=Tue%2C%2014%20May%202024%2008%3A46%3A48%20GMT&host=iat.xf-yun.com
+16:49:51.139 [rx] W (10476983) websocket_client: Client was not started
+16:49:51.143 [rx] [xf_wss] connect failed:	connect timeout
+16:49:51.148 [rx] I (10476992) claw_core: tool_result request=1000021 name=lua_run_script err=ESP_OK output=[xf_wss] connecting...
+16:49:51.151 [rx] [xf_wss] connect failed:	connect timeout
+16:49:51.153 [rx] 
+16:49:51.342 [rx] I (10477146) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:49:51.346 [rx] I (10477152) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:49:51.349 [rx] I (10477176) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:49:51.458 [rx] I (10477217) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:50:33.207 [rx] I (10518993) claw_event_router: processing event=stage-1000021-1789203022512 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:50:33.219 [rx] I (10518994) claw_core: tool_call request=1000021 name=write_file args={"content": "-- 讯飞 ASR WSS 连接探测 + 完整鉴权\nlocal APPID = \"da8ef6c7\"\nlocal AP...
+16:50:33.224 [rx] I (10518995) claw_event_router: event=stage-1000021-1789203022512 matched rule=agent_stage_im_notify actions=1
+16:50:33.450 [rx] I (10519189) claw_core: tool_result request=1000021 name=write_file err=ESP_OK output=OK: wrote 1749 bytes to /fatfs/skills/voice_loop/xf_probe2.lua
+16:50:33.605 [rx] I (10519405) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:50:33.619 [rx] I (10519410) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:50:33.636 [rx] I (10519429) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:50:33.644 [rx] I (10519462) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:50:34.291 [rx] I (10520057) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:50:54.635 [rx] I (10540490) claw_core: tool_call request=1000021 name=lua_run_script args={"timeout_ms": 30000, "path": "/fatfs/skills/voice_loop/xf_probe2.lua"}
+16:50:54.644 [rx] I (10540490) claw_event_router: processing event=stage-1000021-1789203044008 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:50:54.649 [rx] I (10540499) claw_event_router: event=stage-1000021-1789203044008 matched rule=agent_stage_im_notify actions=1
+16:50:54.714 [rx] I (10540500) cap_lua_async: Queued Lua async job a7fd4825 name=(unnamed) exclusive=none timeout_ms=30000 log_bytes=4096 path=/fatfs/skills/voice_loop/xf_probe2.lua
+16:50:54.844 [rx] [xf_probe2] json:	true
+16:50:54.853 [rx] [xf_probe2] base64:	false
+16:50:54.860 [rx] [xf_probe2] crypto:	false
+16:50:54.864 [rx] [xf_probe2] hmac:	false
+16:50:54.868 [rx] [xf_probe2] sha256:	false
+16:50:54.872 [rx] [xf_probe2] socket:	true
+16:50:54.876 [rx] [xf_probe2] websocket:	true
+16:50:54.880 [rx] [xf_probe2] trying WSS no-auth: wss://iat.xf-yun.com/v1
+16:50:54.884 [rx] I (10540690) websocket_client: Started
+16:50:56.286 [rx] I (10541971) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:50:57.511 [rx] E (10543043) transport_ws: Sec-WebSocket-Accept not found
+16:50:57.602 [rx] E (10543044) websocket_client: esp_transport_connect() failed with -1, transport_error=ESP_OK, tls_error_code=0, tls_flags=0, esp_ws_handshake_status_code=401, errno=119
+16:50:57.618 [rx] E (10543045) lua_module_websocket: websocket transport error
+16:50:57.624 [rx] W (10543049) lua_module_websocket: disconnected from wss://iat.xf-yun.com/v1
+16:51:04.989 [rx] W (10550784) lua_module_websocket: connect timeout for wss://iat.xf-yun.com/v1
+16:51:05.001 [rx] W (10550784) websocket_client: Client was not started
+16:51:05.018 [rx] [xf_probe2] WSS connect failed:	connect timeout
+16:51:05.032 [rx] [xf_probe2] TCP 443:	true	ok
+16:51:05.056 [rx] I (10550828) claw_core: tool_result request=1000021 name=lua_run_script err=ESP_OK output=[xf_probe2] json:	true
+16:51:05.247 [rx] [xf_probe2] base64:	false
+16:51:05.268 [rx] [xf_probe2] crypto:	false
+16:51:05.559 [rx] [xf_probe2] hmac:	fal...
+16:51:05.576 [rx] I (10550960) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:51:05.582 [rx] I (10550964) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:51:05.588 [rx] I (10550983) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:51:05.593 [rx] I (10551017) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:51:20.845 [rx] I (10566667) claw_event_router: processing event=stage-1000021-1789203070186 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:51:20.856 [rx] I (10566667) claw_core: tool_call request=1000021 name=write_file args={"content": "local websocket = require(\"websocket\")\nlocal socket = require(\"socket\")\n\n-- ...
+16:51:20.861 [rx] I (10566670) claw_event_router: event=stage-1000021-1789203070186 matched rule=agent_stage_im_notify actions=1
+16:51:21.169 [rx] I (10566989) claw_core: tool_result request=1000021 name=write_file err=ESP_OK output=OK: wrote 733 bytes to /fatfs/skills/voice_loop/wss_debug.lua
+16:51:21.468 [rx] I (10567178) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:51:21.511 [rx] I (10567184) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:51:21.515 [rx] I (10567208) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:51:21.522 [rx] I (10567255) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:51:21.948 [rx] I (10567813) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:51:30.823 [rx] I (10576656) claw_event_router: processing event=stage-1000021-1789203080175 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:51:30.865 [rx] I (10576656) claw_core: tool_call request=1000021 name=lua_run_script args={"path": "/fatfs/skills/voice_loop/wss_debug.lua", "timeout_ms": 40000}
+16:51:30.879 [rx] I (10576659) claw_event_router: event=stage-1000021-1789203080175 matched rule=agent_stage_im_notify actions=1
+16:51:30.883 [rx] I (10576665) cap_lua_async: Queued Lua async job f10ed89a name=(unnamed) exclusive=none timeout_ms=40000 log_bytes=4096 path=/fatfs/skills/voice_loop/wss_debug.lua
+16:51:30.886 [rx] [wss_debug] testing wss connect with longer timeout...
+16:51:30.962 [rx] I (10576726) websocket_client: Started
+16:51:31.663 [rx] E (10577508) transport_ws: Sec-WebSocket-Accept not found
+16:51:31.668 [rx] E (10577508) websocket_client: esp_transport_connect() failed with -1, transport_error=ESP_OK, tls_error_code=0, tls_flags=0, esp_ws_handshake_status_code=401, errno=119
+16:51:31.671 [rx] E (10577510) lua_module_websocket: websocket transport error
+16:51:31.736 [rx] W (10577514) lua_module_websocket: disconnected from wss://iat.xf-yun.com/v1
+16:51:32.724 [rx] I (10578545) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:51:50.976 [rx] W (10596797) lua_module_websocket: connect timeout for wss://iat.xf-yun.com/v1
+16:51:51.154 [rx] W (10596797) websocket_client: Client was not started
+16:51:51.156 [rx] [wss_debug] failed:	connect timeout
+16:51:51.160 [rx] [wss_debug] manual TCP probe...
+16:51:51.162 [rx] [wss_debug] tcp:	true
+16:51:51.216 [rx] I (10596830) claw_core: tool_result request=1000021 name=lua_run_script err=ESP_FAIL output=[wss_debug] testing wss connect with longer timeout...
+16:51:51.219 [rx] [wss_debug] failed:	connect timeout
+16:51:51.243 [rx] [wss_...
+16:51:51.246 [rx] I (10596965) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:51:51.248 [rx] I (10596969) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:51:51.254 [rx] I (10596988) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:51:51.262 [rx] I (10597021) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:52:02.474 [rx] I (10608077) claw_event_router: processing event=stage-1000021-1789203111595 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:52:02.510 [rx] I (10608077) claw_core: tool_call request=1000021 name=write_file args={"content": "local websocket = require(\"websocket\")\nlocal socket = require(\"socket\")\n\npri...
+16:52:02.544 [rx] I (10608079) claw_event_router: event=stage-1000021-1789203111595 matched rule=agent_stage_im_notify actions=1
+16:52:02.550 [rx] I (10608222) claw_core: tool_result request=1000021 name=write_file err=ESP_OK output=OK: wrote 624 bytes to /fatfs/skills/voice_loop/wss_debug2.lua
+16:52:02.557 [rx] I (10608402) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:52:02.636 [rx] I (10608406) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:52:02.639 [rx] I (10608427) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:52:02.642 [rx] I (10608459) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:52:03.315 [rx] I (10609105) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:52:14.878 [rx] I (10620665) claw_event_router: processing event=stage-1000021-1789203124184 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:52:14.894 [rx] I (10620665) claw_core: tool_call request=1000021 name=lua_run_script args={"path": "/fatfs/skills/voice_loop/wss_debug2.lua", "timeout_ms": 50000}
+16:52:14.901 [rx] I (10620667) claw_event_router: event=stage-1000021-1789203124184 matched rule=agent_stage_im_notify actions=1
+16:52:14.907 [rx] I (10620670) cap_lua_async: Queued Lua async job 213361e8 name=(unnamed) exclusive=none timeout_ms=50000 log_bytes=4096 path=/fatfs/skills/voice_loop/wss_debug2.lua
+16:52:14.909 [rx] [wss_debug2] wss with 30s timeout...
+16:52:14.913 [rx] I (10620704) websocket_client: Started
+16:52:15.465 [rx] E (10621269) transport_ws: Sec-WebSocket-Accept not found
+16:52:15.469 [rx] E (10621269) websocket_client: esp_transport_connect() failed with -1, transport_error=ESP_OK, tls_error_code=0, tls_flags=0, esp_ws_handshake_status_code=401, errno=119
+16:52:15.473 [rx] E (10621271) lua_module_websocket: websocket transport error
+16:52:15.475 [rx] W (10621273) lua_module_websocket: disconnected from wss://iat.xf-yun.com/v1
+16:52:16.080 [rx] I (10621874) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:52:44.925 [rx] W (10650761) lua_module_websocket: connect timeout for wss://iat.xf-yun.com/v1
+16:52:44.965 [rx] W (10650762) websocket_client: Client was not started
+16:52:45.010 [rx] [wss_debug2] failed:	connect timeout
+16:52:45.110 [rx] [wss_debug2] wss echo.websocket.org...
+16:52:45.113 [rx] I (10650764) websocket_client: Started
+16:52:49.782 [rx] I (10655576) lua_module_websocket: connected to wss://echo.websocket.org
+16:52:49.785 [rx] [wss_debug2] echo connected, closing
+16:52:50.763 [rx] I (10656587) claw_core: tool_result request=1000021 name=lua_run_script err=ESP_OK output=[wss_debug2] wss with 30s timeout...
+16:52:50.770 [rx] [wss_debug2] failed:	connect timeout
+16:52:50.775 [rx] [wss_debug2] wss echo....
+16:52:50.961 [rx] I (10656801) claw_core: context_loaded request=1000021 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:52:50.965 [rx] I (10656805) claw_core: context_loaded request=1000021 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:52:51.041 [rx] I (10656823) claw_core: context_loaded request=1000021 provider=Skills List context_kind=system_prompt context_len=2632
+16:52:51.044 [rx] I (10656855) claw_core: context_loaded request=1000021 provider=cap Tools context_kind=tools context_len=11903
+16:53:24.646 [rx] I (10690502) claw_memory: auto_extract llm candidates=0 stored=0
+16:53:24.650 [rx] I (10690503) claw_core: completion request=1000021 status=done raw=结论很清楚：
+16:53:24.688 [rx] 
+16:53:24.692 [rx] **WSS 模块本身可用**（`echo.websocket.org` 连成功），**但 `iat....
+16:53:24.804 [rx] I (10690631) claw_event_router: processing event=agent-1000021-1789203194149 type=out_message source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:53:24.809 [rx] I (10690633) claw_event_router: event=agent-1000021-1789203194149 matched rule=agent_out_message_send_message actions=1
+16:53:25.876 [rx] I (10691705) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:58:31.777 [rx] I (10997626) cap_im_feishu: Feishu text inbound chat=oc_b50ee494ba3d9b90be4e73976c7ec4b0 route=ou_225bc1815d5cc70f7caa6c68db3b24fb message=om_x100b65650dba64acb1cac66c8dbcaa1
+16:58:31.783 [rx] I (10997626) claw_event_router: processing event=msg-1789203501145 type=message source=feishu_gateway channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:58:31.788 [rx] I (10997629) claw_event_router: event=msg-1789203501145 matched rule=im_any_message_working_reply actions=1
+16:58:32.869 [rx] I (10998662) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:58:32.994 [rx] I (10998663) claw_event_router: event=msg-1789203501145 matched rule=im_any_message_agent actions=1
+16:58:33.070 [rx] I (10998670) claw_memory: async extract job created request=1000023 session=chat:feishu:ou_225bc1815d5cc70f7caa6c68db3b24fb:default_01
+16:58:33.146 [rx] I (10998916) claw_core: context_cached request=1000023 provider=Session History context_kind=messages context_len=50781
+16:58:33.180 [rx] I (10998924) claw_core: context_loaded request=1000023 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:58:33.198 [rx] I (10998929) claw_core: context_loaded request=1000023 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:58:33.220 [rx] I (10998962) claw_core: context_loaded request=1000023 provider=Skills List context_kind=system_prompt context_len=2632
+16:58:33.246 [rx] I (10998996) claw_core: context_loaded request=1000023 provider=cap Tools context_kind=tools context_len=11903
+16:58:50.221 [rx] I (11016045) cap_im_feishu: Feishu post inbound chat=oc_b50ee494ba3d9b90be4e73976c7ec4b0 route=ou_225bc1815d5cc70f7caa6c68db3b24fb message=om_x100b65650a504cacb39c434838b4ea0
+16:58:50.232 [rx] I (11016045) claw_event_router: processing event=msg-1789203519564 type=message source=feishu_gateway channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:58:50.243 [rx] I (11016049) claw_event_router: event=msg-1789203519564 matched rule=im_any_message_working_reply actions=1
+16:58:51.234 [rx] I (11017060) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:58:51.238 [rx] I (11017061) claw_event_router: event=msg-1789203519564 matched rule=im_any_message_agent actions=1
+16:58:51.240 [rx] I (11017065) claw_core: inserted user input request=1000024 into inflight_request=1000023 session=chat:feishu:ou_225bc1815d5cc70f7caa6c68db3b24fb:default_01 depth=1
+16:58:54.479 [rx] W (11020312) llm_http: HTTP perform completed after caller abort
+16:58:54.981 [rx] E (11020315) claw_core_llm: chat_messages: runtime chat failed err=0x103
+16:58:55.003 [rx] I (11020436) claw_core: user_interrupt_triggered request=1000023 timing=in_llm_http_abort count=1 persisted=true
+16:58:55.038 [rx] I (11020446) claw_core: context_loaded request=1000023 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:58:55.228 [rx] I (11020451) claw_core: context_loaded request=1000023 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:58:55.241 [rx] I (11020481) claw_core: context_loaded request=1000023 provider=Skills List context_kind=system_prompt context_len=2632
+16:58:55.255 [rx] I (11020514) claw_core: context_loaded request=1000023 provider=cap Tools context_kind=tools context_len=11903
+16:59:10.785 [rx] I (11036618) claw_event_router: processing event=stage-1000023-1789203540137 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:59:10.795 [rx] I (11036618) claw_core: tool_call request=1000023 name=write_file args={"content": "local websocket = require(\"websocket\")\nlocal hosts = {\n    \"wss://iat-api.xfyu...
+16:59:10.802 [rx] I (11036620) claw_event_router: event=stage-1000023-1789203540137 matched rule=agent_stage_im_notify actions=1
+16:59:10.929 [rx] I (11036769) claw_core: tool_result request=1000023 name=write_file err=ESP_OK output=OK: wrote 436 bytes to /fatfs/skills/voice_loop/xf_ws_v2.lua
+16:59:11.054 [rx] I (11036909) claw_core: context_loaded request=1000023 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+16:59:11.066 [rx] I (11036914) claw_core: context_loaded request=1000023 provider=Long-term Memory context_kind=system_prompt context_len=1370
+16:59:11.143 [rx] I (11036948) claw_core: context_loaded request=1000023 provider=Skills List context_kind=system_prompt context_len=2632
+16:59:11.157 [rx] I (11036982) claw_core: context_loaded request=1000023 provider=cap Tools context_kind=tools context_len=11903
+16:59:11.762 [rx] I (11037575) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:59:20.563 [rx] I (11046387) claw_event_router: processing event=stage-1000023-1789203549906 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+16:59:20.616 [rx] I (11046388) claw_core: tool_call request=1000023 name=lua_run_script args={"timeout_ms": 60000, "path": "/fatfs/skills/voice_loop/xf_ws_v2.lua"}
+16:59:20.626 [rx] I (11046390) claw_event_router: event=stage-1000023-1789203549906 matched rule=agent_stage_im_notify actions=1
+16:59:20.644 [rx] I (11046393) cap_lua_async: Queued Lua async job ed024582 name=(unnamed) exclusive=none timeout_ms=60000 log_bytes=4096 path=/fatfs/skills/voice_loop/xf_ws_v2.lua
+16:59:20.655 [rx] [xf_ws] trying:	wss://iat-api.xfyun.cn/v2/iat
+16:59:20.666 [rx] I (11046429) websocket_client: Started
+16:59:21.174 [rx] E (11046972) transport_ws: Sec-WebSocket-Accept not found
+16:59:21.194 [rx] E (11046973) websocket_client: esp_transport_connect() failed with -1, transport_error=ESP_OK, tls_error_code=0, tls_flags=0, esp_ws_handshake_status_code=401, errno=119
+16:59:21.203 [rx] E (11046975) lua_module_websocket: websocket transport error
+16:59:21.211 [rx] W (11046977) lua_module_websocket: disconnected from wss://iat-api.xfyun.cn/v2/iat
+16:59:21.674 [rx] I (11047503) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+16:59:35.699 [rx] W (11061519) lua_module_websocket: connect timeout for wss://iat-api.xfyun.cn/v2/iat
+16:59:35.706 [rx] W (11061520) websocket_client: Client was not started
+16:59:35.716 [rx] [xf_ws] failed:	connect timeout
+16:59:35.729 [rx] [xf_ws] trying:	wss://iat-api.xfyun.cn/v1
+16:59:35.739 [rx] I (11061523) websocket_client: Started
+16:59:36.109 [rx] E (11061928) transport_ws: Sec-WebSocket-Accept not found
+16:59:36.115 [rx] E (11061929) websocket_client: esp_transport_connect() failed with -1, transport_error=ESP_OK, tls_error_code=0, tls_flags=0, esp_ws_handshake_status_code=403, errno=119
+16:59:36.119 [rx] E (11061931) lua_module_websocket: websocket transport error
+16:59:36.123 [rx] W (11061933) lua_module_websocket: disconnected from wss://iat-api.xfyun.cn/v1
+16:59:50.927 [rx] W (11076715) lua_module_websocket: connect timeout for wss://iat-api.xfyun.cn/v1
+16:59:50.933 [rx] W (11076716) websocket_client: Client was not started
+16:59:50.938 [rx] [xf_ws] failed:	connect timeout
+16:59:50.941 [rx] [xf_ws] trying:	wss://iat-api.xf-yun.com/v1
+16:59:50.946 [rx] I (11076718) websocket_client: Started
+16:59:51.073 [rx] E (11076882) esp-tls: couldn't get hostname for :iat-api.xf-yun.com: getaddrinfo() returns 202, addrinfo=0x0
+16:59:51.081 [rx] E (11076883) esp-tls: Failed to open new connection
+16:59:51.087 [rx] E (11076884) transport_base: Failed to open a new connection
+16:59:51.094 [rx] E (11076884) transport_ws: Error connecting to host iat-api.xf-yun.com:443
+16:59:51.098 [rx] E (11076885) websocket_client: esp_transport_connect() failed with -1, transport_error=ESP_ERR_ESP_TLS_CANNOT_RESOLVE_HOSTNAME, tls_error_code=0, tls_flags=0, esp_ws_handshake_status_code=0, errno=0
+16:59:51.103 [rx] E (11076887) lua_module_websocket: websocket transport error
+16:59:51.106 [rx] W (11076888) lua_module_websocket: disconnected from wss://iat-api.xf-yun.com/v1
+17:00:05.923 [rx] W (11091772) lua_module_websocket: connect timeout for wss://iat-api.xf-yun.com/v1
+17:00:05.936 [rx] W (11091773) websocket_client: Client was not started
+17:00:05.949 [rx] [xf_ws] failed:	connect timeout
+17:00:05.960 [rx] I (11091785) claw_core: tool_result request=1000023 name=lua_run_script err=ESP_OK output=[xf_ws] trying:	wss://iat-api.xfyun.cn/v2/iat
+17:00:05.974 [rx] [xf_ws] failed:	connect timeout
+17:00:05.992 [rx] [xf_ws] trying:	ws...
+17:00:06.126 [rx] I (11091980) claw_core: context_loaded request=1000023 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+17:00:06.135 [rx] I (11091986) claw_core: context_loaded request=1000023 provider=Long-term Memory context_kind=system_prompt context_len=1370
+17:00:06.208 [rx] I (11092018) claw_core: context_loaded request=1000023 provider=Skills List context_kind=system_prompt context_len=2632
+17:00:06.231 [rx] I (11092055) claw_core: context_loaded request=1000023 provider=cap Tools context_kind=tools context_len=11903
+17:00:24.447 [rx] I (11110298) claw_event_router: processing event=stage-1000023-1789203613817 type=agent_stage source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+17:00:24.457 [rx] I (11110299) claw_core: tool_call request=1000023 name=spawn_agent args={"background": true, "prompt": "请分析讯飞 IAT 设备 WSS 连接失败原因，并输出实...
+17:00:24.509 [rx] I (11110300) claw_event_router: event=stage-1000023-1789203613817 matched rule=agent_stage_im_notify actions=1
+17:00:24.704 [rx] E (11110516) cap_agent_mgr: spawn_agent failed: ESP_ERR_NO_MEM
+17:00:24.708 [rx] I (11110516) claw_core: tool_result request=1000023 name=spawn_agent err=ESP_ERR_NO_MEM output=Error: spawn_agent failed: ESP_ERR_NO_MEM
+17:00:24.953 [rx] I (11110791) claw_core: context_loaded request=1000023 provider=Editable Profile Memory context_kind=system_prompt context_len=1302
+17:00:24.959 [rx] I (11110795) claw_core: context_loaded request=1000023 provider=Long-term Memory context_kind=system_prompt context_len=1370
+17:00:24.966 [rx] I (11110825) claw_core: context_loaded request=1000023 provider=Skills List context_kind=system_prompt context_len=2632
+17:00:25.031 [rx] I (11110857) claw_core: context_loaded request=1000023 provider=cap Tools context_kind=tools context_len=11903
+17:00:25.604 [rx] I (11111366) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+17:00:37.572 [rx] I (11123412) claw_memory: auto_extract llm candidates=0 stored=0
+17:00:37.579 [rx] I (11123413) claw_core: completion request=1000023 status=done raw=设备内存不足，我直接分析并继续实现。先排查 WSS 超时原因，并尝试使...
+17:00:37.754 [rx] I (11123543) claw_event_router: processing event=agent-1000023-1789203627062 type=out_message source=claw_core channel=feishu chat=ou_225bc1815d5cc70f7caa6c68db3b24fb
+17:00:38.295 [rx] I (11123546) claw_event_router: event=agent-1000023-1789203627062 matched rule=agent_out_message_send_message actions=1
+17:00:38.751 [rx] I (11124578) claw_event_router: send_message cap=feishu_send_message err=ESP_OK output={"ok":true}
+17:01:16.466 [rx] I (11162277) wifi:<ba-add>idx:6 (ifx:1, 02:c0:9a:93:db:e3), tid:4, ssn:0, winSize:64
+17:03:53.442 [rx] I (11319246) esp_netif_lwip: DHCP server assigned IP to a client, IP is: 192.168.4.3

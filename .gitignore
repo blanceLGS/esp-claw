@@ -41,6 +41,8 @@ Thumbs.db
 # Local debug captures
 abc/
 *_rlcd.log
+tools/esp-term/logs/
+tools/esp-term/__pycache__/
 
 # Docs
 docs/node_modules
