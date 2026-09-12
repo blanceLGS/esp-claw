@@ -36,6 +36,11 @@ Thumbs.db
 .venv/
 
 .codex
+.mimocode
+
+# Local debug captures
+abc/
+*_rlcd.log
 
 # Docs
 docs/node_modules

@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Windows CreateProcess limit: put compile/link args into response files.
+set(CMAKE_NINJA_FORCE_RESPONSE_FILE ON)
+
 include("${CMAKE_SOURCE_DIR}/tools/cmake/esp_idf_patch.cmake")
 include("${CMAKE_SOURCE_DIR}/tools/cmake/flash_partition_defaults.cmake")
 
