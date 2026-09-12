@@ -225,6 +225,18 @@ dependencies:
       - if: $CONFIG{APP_CLAW_LUA_MODULE_DELAY} == True
     path: ../../lua_modules/lua_module_delay
 
+  lua_module_socket:
+    rules:
+      - if: $CONFIG{APP_CLAW_CAP_LUA} == True
+      - if: $CONFIG{APP_CLAW_LUA_MODULE_SOCKET} == True
+    path: ../../lua_modules/lua_module_socket
+
+  lua_module_websocket:
+    rules:
+      - if: $CONFIG{APP_CLAW_CAP_LUA} == True
+      - if: $CONFIG{APP_CLAW_LUA_MODULE_WEBSOCKET} == True
+    path: ../../lua_modules/lua_module_websocket
+
   lua_module_display:
     rules:
       - if: $CONFIG{APP_CLAW_CAP_LUA} == True

@@ -65,6 +65,12 @@
 #if CONFIG_APP_CLAW_LUA_MODULE_DELAY
 #include "lua_module_delay.h"
 #endif
+#if CONFIG_APP_CLAW_LUA_MODULE_SOCKET
+#include "lua_module_socket.h"
+#endif
+#if CONFIG_APP_CLAW_LUA_MODULE_WEBSOCKET
+#include "lua_module_websocket.h"
+#endif
 #if CONFIG_APP_CLAW_LUA_MODULE_DISPLAY
 #include "lua_module_display.h"
 #endif
@@ -448,6 +454,22 @@ static esp_err_t app_lua_register_delay(const char *fatfs_base_path)
 }
 #endif
 
+#if CONFIG_APP_CLAW_LUA_MODULE_SOCKET
+static esp_err_t app_lua_register_socket(const char *fatfs_base_path)
+{
+    (void)fatfs_base_path;
+    return lua_module_socket_register();
+}
+#endif
+
+#if CONFIG_APP_CLAW_LUA_MODULE_WEBSOCKET
+static esp_err_t app_lua_register_websocket(const char *fatfs_base_path)
+{
+    (void)fatfs_base_path;
+    return lua_module_websocket_register();
+}
+#endif
+
 #if CONFIG_APP_CLAW_LUA_MODULE_DISPLAY
 static esp_err_t app_lua_register_display(const char *fatfs_base_path)
 {
@@ -658,6 +680,12 @@ static const app_lua_module_entry_t s_lua_module_entries[] = {
 #if CONFIG_APP_CLAW_LUA_MODULE_DELAY
     { "delay", "Delay", app_lua_register_delay },
 #endif
+#if CONFIG_APP_CLAW_LUA_MODULE_SOCKET
+    { "socket", "Socket", app_lua_register_socket },
+#endif
+#if CONFIG_APP_CLAW_LUA_MODULE_WEBSOCKET
+    { "websocket", "WebSocket", app_lua_register_websocket },
+#endif
 #if CONFIG_APP_CLAW_LUA_MODULE_DISPLAY
     { "display", "Display", app_lua_register_display },
 #endif
@@ -770,6 +798,12 @@ static const app_lua_module_info_t s_lua_module_infos[] = {
 #endif
 #if CONFIG_APP_CLAW_LUA_MODULE_DELAY
     { "delay", "Delay" },
+#endif
+#if CONFIG_APP_CLAW_LUA_MODULE_SOCKET
+    { "socket", "Socket" },
+#endif
+#if CONFIG_APP_CLAW_LUA_MODULE_WEBSOCKET
+    { "websocket", "WebSocket" },
 #endif
 #if CONFIG_APP_CLAW_LUA_MODULE_DISPLAY
     { "display", "Display" },

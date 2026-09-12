@@ -326,6 +326,22 @@ menu "App Claw Config"
                 Enable the delay Lua module and keep app_claw's direct dependency
                 on lua_module_delay when Lua capability is enabled.
 
+        config APP_CLAW_LUA_MODULE_SOCKET
+            bool "Enable socket Lua module"
+            default y
+            help
+                Enable the high-level socket Lua module (TCP/UDP, luasocket-style)
+                and keep app_claw's direct dependency on lua_module_socket when
+                Lua capability is enabled.
+
+        config APP_CLAW_LUA_MODULE_WEBSOCKET
+            bool "Enable websocket Lua module"
+            default y
+            help
+                Enable the high-level WebSocket client Lua module and keep
+                app_claw's direct dependency on lua_module_websocket when Lua
+                capability is enabled.
+
         config APP_CLAW_LUA_MODULE_DISPLAY
             bool "Enable display Lua module"
             default y
