@@ -343,29 +343,27 @@ static esp_err_t rlcd_panel_disp_sleep(esp_lcd_panel_t *p, bool sleep)
     return ESP_OK;
 }
 
-/* ── dev_display_lcd_config reported to esp_board_manager ───────────────── */
+/* ── Custom device config reported to esp_board_manager ──────────────────── */
 
 /*
- * bits_per_pixel = 16 so that LVGL allocates RGB565 render buffers.
- * The panel's draw_bitmap converts RGB565 → 1 bpp internally.
+ * bits_per_pixel is not part of the generated custom config; LVGL still
+ * allocates RGB565 buffers via the panel interface used in init.
  */
-static const dev_display_lcd_config_t s_lcd_config = {
+static const dev_custom_display_lcd_config_t s_lcd_config = {
     .name = "display_lcd",
+    .type = "custom",
     .chip = "rlcd",
-    .sub_type = "spi",
     .lcd_width = RLCD_WIDTH,
     .lcd_height = RLCD_HEIGHT,
-    .swap_xy = 0,
-    .mirror_x = 0,
-    .mirror_y = 0,
-    .invert_color = 0,
-    .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
-    .data_endian = LCD_RGB_DATA_ENDIAN_BIG,
-    .bits_per_pixel = 16,
 };
 
 /* ── Persistent device state ─────────────────────────────────────────────── */
-static dev_display_lcd_handles_t s_lcd_handles;
+typedef struct {
+    esp_lcd_panel_io_handle_t io_handle;
+    esp_lcd_panel_handle_t    panel_handle;
+} rlcd_handles_t;
+
+static rlcd_handles_t s_lcd_handles;
 
 /* ── Custom device lifecycle ─────────────────────────────────────────────── */
 
@@ -482,7 +480,7 @@ err_free_fb:
 
 static int display_lcd_deinit(void *device_handle)
 {
-    dev_display_lcd_handles_t *handles = (dev_display_lcd_handles_t *)device_handle;
+    rlcd_handles_t *handles = (rlcd_handles_t *)device_handle;
     if (handles != NULL)
     {
         if (handles->panel_handle != NULL)
