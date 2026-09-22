@@ -90,6 +90,7 @@ typedef struct {
     bool completed;
     bool has_tool_records;
     bool keep_tool_records;
+    bool drop; /* Drop the entire turn during compaction. */
 } claw_memory_session_turn_t;
 
 #define CLAW_MEMORY_SESSION_IDX_MAGIC 0x58444843u /* CHDX */
@@ -1534,6 +1535,9 @@ static bool session_history_compact_keep_record(const claw_memory_session_turn_t
     if (!turns || turn_index >= turn_count) {
         return false;
     }
+    if (turns[turn_index].drop) {
+        return false;
+    }
     if (type == CLAW_CORE_CONTEXT_RECORD_USER ||
             type == CLAW_CORE_CONTEXT_RECORD_ASSISTANT_FINAL) {
         return true;
@@ -1546,46 +1550,97 @@ static bool session_history_compact_keep_record(const claw_memory_session_turn_t
             type == CLAW_CORE_CONTEXT_RECORD_TOOL_RESULT);
 }
 
-static esp_err_t session_history_plan_compaction(const claw_memory_session_index_t *index,
-                                                 const claw_memory_session_turn_t *turns,
-                                                 size_t turn_count,
-                                                 size_t *out_data_size,
-                                                 size_t *out_entry_count)
+/*
+ * Mark oldest complete turns for eviction so the compacted history fits
+ * CLAW_MEMORY_SESSION_SIZE_LIMIT while keeping at least
+ * CLAW_MEMORY_SESSION_MIN_KEEP_TURNS complete turns. Also enforce
+ * CLAW_MEMORY_SESSION_MAX_TURNS as a hard turn-count cap.
+ */
+static esp_err_t session_history_mark_turns_to_keep(const claw_memory_session_index_t *index,
+                                                    claw_memory_session_turn_t *turns,
+                                                    size_t turn_count,
+                                                    size_t *out_kept_bytes,
+                                                    size_t *out_kept_entries)
 {
-    size_t compacted_data_size = 0;
-    size_t compacted_entry_count = 0;
-    size_t turn_index = 0;
+    size_t complete_count = 0;
     size_t i;
+    size_t t;
+    size_t kept_bytes = 0;
+    size_t kept_entries = 0;
 
-    if (!index || !turns || turn_count == 0 || !out_data_size || !out_entry_count) {
+    if (!index || !turns || turn_count == 0 || !out_kept_bytes || !out_kept_entries) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    *out_data_size = 0;
-    *out_entry_count = 0;
-
-    for (i = 0; i < index->count; i++) {
-        claw_core_context_record_type_t type =
-            (claw_core_context_record_type_t)index->entries[i].record_type;
-
-        while (turn_index + 1 < turn_count && i >= turns[turn_index].end) {
-            turn_index++;
+    for (t = 0; t < turn_count; t++) {
+        turns[t].drop = false;
+        if (turns[t].completed) {
+            complete_count++;
         }
-        if (!session_history_compact_keep_record(turns,
-                                                 turn_count,
-                                                 turn_index,
-                                                 type)) {
-            continue;
-        }
-        if (SIZE_MAX - compacted_data_size < index->entries[i].length) {
-            return ESP_ERR_INVALID_SIZE;
-        }
-        compacted_data_size += index->entries[i].length;
-        compacted_entry_count++;
     }
 
-    *out_data_size = compacted_data_size;
-    *out_entry_count = compacted_entry_count;
+    /* Hard cap: drop oldest complete turns beyond MAX_TURNS. */
+    if (complete_count > CLAW_MEMORY_SESSION_MAX_TURNS) {
+        size_t drop_complete = complete_count - CLAW_MEMORY_SESSION_MAX_TURNS;
+
+        for (t = 0; t < turn_count && drop_complete > 0; t++) {
+            if (turns[t].completed) {
+                turns[t].drop = true;
+                drop_complete--;
+            }
+        }
+    }
+
+    for (;;) {
+        size_t remaining_complete = 0;
+        size_t oldest_complete = turn_count;
+
+        kept_bytes = 0;
+        kept_entries = 0;
+        for (i = 0; i < index->count; i++) {
+            size_t turn_index = 0;
+
+            while (turn_index + 1 < turn_count && i >= turns[turn_index].end) {
+                turn_index++;
+            }
+            if (session_history_compact_keep_record(turns,
+                                                    turn_count,
+                                                    turn_index,
+                                                    (claw_core_context_record_type_t)index->entries[i].record_type)) {
+                kept_bytes += index->entries[i].length;
+                kept_entries++;
+            }
+        }
+
+        if (kept_bytes <= CLAW_MEMORY_SESSION_SIZE_LIMIT) {
+            break;
+        }
+
+        for (t = 0; t < turn_count; t++) {
+            if (turns[t].completed && !turns[t].drop) {
+                remaining_complete++;
+                if (oldest_complete == turn_count) {
+                    oldest_complete = t;
+                }
+            }
+        }
+
+        /* Never evict below the minimum keep window; last incomplete turn stays. */
+        if (remaining_complete <= CLAW_MEMORY_SESSION_MIN_KEEP_TURNS ||
+                oldest_complete == turn_count) {
+            break;
+        }
+
+        turns[oldest_complete].drop = true;
+        ESP_LOGI(TAG,
+                 "session compact: dropping oldest complete turn %u (size=%u limit=%u)",
+                 (unsigned)oldest_complete,
+                 (unsigned)kept_bytes,
+                 (unsigned)CLAW_MEMORY_SESSION_SIZE_LIMIT);
+    }
+
+    *out_kept_bytes = kept_bytes;
+    *out_kept_entries = kept_entries;
     return ESP_OK;
 }
 
@@ -1637,11 +1692,11 @@ static esp_err_t session_history_rewrite_compacted(const char *session_id,
         return err;
     }
 
-    err = session_history_plan_compaction(index,
-                                          turns,
-                                          turn_count,
-                                          &compacted_data_size,
-                                          &compacted_entry_count);
+    err = session_history_mark_turns_to_keep(index,
+                                             turns,
+                                             turn_count,
+                                             &compacted_data_size,
+                                             &compacted_entry_count);
     if (err != ESP_OK) {
         goto cleanup;
     }
@@ -1781,19 +1836,49 @@ static esp_err_t session_history_compact_if_needed(const char *session_id,
                                                    const char *idx_path)
 {
     claw_memory_session_index_t index = {0};
+    claw_memory_session_turn_t *turns = NULL;
+    size_t turn_count = 0;
+    size_t file_size;
+    bool need_compact = false;
     esp_err_t err;
 
     if (!session_id || !data_path || !idx_path) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (file_size_bytes(data_path) <= CLAW_MEMORY_SESSION_SIZE_LIMIT) {
-        return ESP_OK;
-    }
+    file_size = file_size_bytes(data_path);
+    if (file_size <= CLAW_MEMORY_SESSION_SIZE_LIMIT) {
+        /* Still enforce turn-count cap when history is under the size limit. */
+        err = session_history_validate_pair(data_path, idx_path, &index);
+        if (err != ESP_OK) {
+            session_history_index_free(&index);
+            return ESP_OK;
+        }
+        if (session_history_analyze_turns(&index, &turns, &turn_count) == ESP_OK) {
+            size_t complete_count = 0;
 
-    err = session_history_validate_pair(data_path, idx_path, &index);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Resetting invalid oversized session history %s", data_path);
-        return session_history_recreate_file(data_path, idx_path);
+            for (size_t t = 0; t < turn_count; t++) {
+                if (turns[t].completed) {
+                    complete_count++;
+                }
+            }
+            need_compact = complete_count > CLAW_MEMORY_SESSION_MAX_TURNS;
+            free(turns);
+        }
+        session_history_index_free(&index);
+        if (!need_compact) {
+            return ESP_OK;
+        }
+        err = session_history_validate_pair(data_path, idx_path, &index);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Resetting invalid session history %s", data_path);
+            return session_history_recreate_file(data_path, idx_path);
+        }
+    } else {
+        err = session_history_validate_pair(data_path, idx_path, &index);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Resetting invalid oversized session history %s", data_path);
+            return session_history_recreate_file(data_path, idx_path);
+        }
     }
 
     err = session_history_rewrite_compacted(session_id, request, data_path, idx_path, &index);

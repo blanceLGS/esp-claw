@@ -61,6 +61,12 @@ typedef struct {
 #define APP_DEFAULT_LLM_VISIBLE_CAP_GROUPS   ""
 #define APP_DEFAULT_ENABLED_LUA_MODULES      ""
 #define APP_DEFAULT_TIME_TIMEZONE            "CST-8"
+#define APP_DEFAULT_ASR_PROVIDER             ""
+#define APP_DEFAULT_VOICE_WAKE_WORDS         "小依"
+#define APP_DEFAULT_TTS_BASE_URL             "https://api.siliconflow.cn/v1"
+#define APP_DEFAULT_TTS_VOLUME               "80"
+#define APP_DEFAULT_VOICE_ENABLE             "true"
+#define APP_DEFAULT_ASR_ENDPOINT             "wss://iat.xf-yun.com/v1"
 
 static const app_config_field_t s_fields[] = {
     APP_CONFIG_FIELD(wifi_ssid, "wifi_ssid", APP_WIFI_SSID),
@@ -93,6 +99,19 @@ static const app_config_field_t s_fields[] = {
     APP_CONFIG_FIELD(search_brave_key, "brave_key", APP_DEFAULT_SEARCH_BRAVE_KEY),
     APP_CONFIG_FIELD(search_tavily_key, "tavily_key", APP_DEFAULT_SEARCH_TAVILY_KEY),
     APP_CONFIG_FIELD(search_http_allowlist, "http_allow_ls", APP_SEARCH_HTTP_ALLOWLIST),
+    APP_CONFIG_FIELD(asr_provider, "asr_provider", APP_DEFAULT_ASR_PROVIDER),
+    APP_CONFIG_FIELD(asr_api_key, "asr_api_key", ""),
+    APP_CONFIG_FIELD(asr_api_secret, "asr_api_secret", ""),
+    APP_CONFIG_FIELD(asr_app_id, "asr_app_id", ""),
+    APP_CONFIG_FIELD(asr_model, "asr_model", ""),
+    APP_CONFIG_FIELD(asr_endpoint, "asr_endpoint", APP_DEFAULT_ASR_ENDPOINT),
+    APP_CONFIG_FIELD(voice_wake_words, "wake_words", APP_DEFAULT_VOICE_WAKE_WORDS),
+    APP_CONFIG_FIELD(voice_enable, "voice_enable", APP_DEFAULT_VOICE_ENABLE),
+    APP_CONFIG_FIELD(tts_api_key, "tts_api_key", ""),
+    APP_CONFIG_FIELD(tts_base_url, "tts_base_url", APP_DEFAULT_TTS_BASE_URL),
+    APP_CONFIG_FIELD(tts_model, "tts_model", ""),
+    APP_CONFIG_FIELD(tts_voice, "tts_voice", ""),
+    APP_CONFIG_FIELD(tts_volume, "tts_volume", APP_DEFAULT_TTS_VOLUME),
     APP_CONFIG_FIELD(enabled_cap_groups, "en_cap_groups", APP_DEFAULT_ENABLED_CAP_GROUPS),
     APP_CONFIG_FIELD(llm_visible_cap_groups, "vis_cap_groups", APP_DEFAULT_LLM_VISIBLE_CAP_GROUPS),
     APP_CONFIG_FIELD(enabled_lua_modules, "en_lua_mods", APP_DEFAULT_ENABLED_LUA_MODULES),
@@ -584,6 +603,19 @@ void app_config_to_claw(const app_config_t *config, app_claw_config_t *out)
     strlcpy(out->search_http_allowlist,
             config->search_http_allowlist,
             sizeof(out->search_http_allowlist));
+    strlcpy(out->asr_provider, config->asr_provider, sizeof(out->asr_provider));
+    strlcpy(out->asr_api_key, config->asr_api_key, sizeof(out->asr_api_key));
+    strlcpy(out->asr_api_secret, config->asr_api_secret, sizeof(out->asr_api_secret));
+    strlcpy(out->asr_app_id, config->asr_app_id, sizeof(out->asr_app_id));
+    strlcpy(out->asr_model, config->asr_model, sizeof(out->asr_model));
+    strlcpy(out->asr_endpoint, config->asr_endpoint, sizeof(out->asr_endpoint));
+    strlcpy(out->voice_wake_words, config->voice_wake_words, sizeof(out->voice_wake_words));
+    strlcpy(out->voice_enable, config->voice_enable, sizeof(out->voice_enable));
+    strlcpy(out->tts_api_key, config->tts_api_key, sizeof(out->tts_api_key));
+    strlcpy(out->tts_base_url, config->tts_base_url, sizeof(out->tts_base_url));
+    strlcpy(out->tts_model, config->tts_model, sizeof(out->tts_model));
+    strlcpy(out->tts_voice, config->tts_voice, sizeof(out->tts_voice));
+    strlcpy(out->tts_volume, config->tts_volume, sizeof(out->tts_volume));
     strlcpy(out->enabled_cap_groups, config->enabled_cap_groups, sizeof(out->enabled_cap_groups));
     strlcpy(out->llm_visible_cap_groups, config->llm_visible_cap_groups, sizeof(out->llm_visible_cap_groups));
     strlcpy(out->enabled_lua_modules, config->enabled_lua_modules, sizeof(out->enabled_lua_modules));

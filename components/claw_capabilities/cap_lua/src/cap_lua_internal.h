@@ -26,6 +26,9 @@
 #define CAP_LUA_MAX_MODULES             32
 
 #define CAP_LUA_STOP_WAIT_DEFAULT_MS    2000
+/* Wait for an exclusive-group slot instead of failing immediately (TTS queue). */
+#define CAP_LUA_EXCLUSIVE_WAIT_MAX_MS   60000
+#define CAP_LUA_EXCLUSIVE_WAIT_POLL_MS  200
 
 typedef void (*cap_lua_runtime_log_fn_t)(void *user_ctx,
                                          const char *text,

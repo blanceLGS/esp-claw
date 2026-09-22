@@ -17,12 +17,18 @@
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_random.h"
+#include "esp_timer.h"
 
 static const char *TAG = "cap_http_request";
 
 #define CAP_HTTP_REQUEST_TIMEOUT_MS_DEFAULT 15000
 #define CAP_HTTP_REQUEST_MAX_BODY_DEFAULT   (16 * 1024)
 #define CAP_HTTP_REQUEST_MAX_BODY_LIMIT     ((64 * 1024) - 1)
+#define CAP_HTTP_REQUEST_MULTIPART_MAX      (256 * 1024)
+#define CAP_HTTP_REQUEST_MULTIPART_FIELDS   16
+#define CAP_HTTP_REQUEST_MULTIPART_FILES    8
+#define CAP_HTTP_REQUEST_BOUNDARY_PREFIX    "espclaw"
 #define CAP_HTTP_REQUEST_MAX_FILE_LIMIT     2147483647
 #define CAP_HTTP_REQUEST_ALLOWLIST_MAX      320
 #define CAP_HTTP_REQUEST_REDIRECT_URL_MAX   512
@@ -37,6 +43,7 @@ typedef struct {
     size_t max_file_bytes;
     bool file_write_failed;
     bool truncated;
+    bool file_direct;
     bool check_redirect_allowlist;
     char redirect_location[CAP_HTTP_REQUEST_REDIRECT_URL_MAX];
 } cap_http_request_buf_t;
@@ -114,6 +121,9 @@ static esp_err_t cap_http_request_event_handler(esp_http_client_event_t *event)
                 return ESP_FAIL;
             }
             buf->file_bytes += write_len;
+            if (buf->file_direct) {
+                fflush(buf->file);
+            }
             break;
         }
 
@@ -381,6 +391,209 @@ static bool cap_http_request_host_allowed(const char *host)
     return false;
 }
 
+typedef struct {
+    char *data;
+    size_t len;
+    size_t cap;
+} cap_http_multipart_buf_t;
+
+static bool cap_http_multipart_reserve(cap_http_multipart_buf_t *buf, size_t extra)
+{
+    size_t need;
+    size_t new_cap;
+    char *grown;
+
+    if (!buf) {
+        return false;
+    }
+    need = buf->len + extra + 1;
+    if (need > CAP_HTTP_REQUEST_MULTIPART_MAX) {
+        return false;
+    }
+    if (need <= buf->cap) {
+        return true;
+    }
+    new_cap = buf->cap ? buf->cap : 1024;
+    while (new_cap < need) {
+        if (new_cap >= CAP_HTTP_REQUEST_MULTIPART_MAX / 2) {
+            new_cap = CAP_HTTP_REQUEST_MULTIPART_MAX;
+            break;
+        }
+        new_cap *= 2;
+    }
+    grown = realloc(buf->data, new_cap);
+    if (!grown) {
+        return false;
+    }
+    buf->data = grown;
+    buf->cap = new_cap;
+    return true;
+}
+
+static bool cap_http_multipart_append(cap_http_multipart_buf_t *buf, const void *data, size_t len)
+{
+    if (len == 0) {
+        return true;
+    }
+    if (!data || !cap_http_multipart_reserve(buf, len)) {
+        return false;
+    }
+    memcpy(buf->data + buf->len, data, len);
+    buf->len += len;
+    buf->data[buf->len] = '\0';
+    return true;
+}
+
+static bool cap_http_multipart_append_str(cap_http_multipart_buf_t *buf, const char *text)
+{
+    return cap_http_multipart_append(buf, text, text ? strlen(text) : 0);
+}
+
+static bool cap_http_multipart_append_file(cap_http_multipart_buf_t *buf, const char *path)
+{
+    FILE *file;
+    char chunk[1024];
+    size_t n;
+
+    file = fopen(path, "rb");
+    if (!file) {
+        return false;
+    }
+    while ((n = fread(chunk, 1, sizeof(chunk), file)) > 0) {
+        if (!cap_http_multipart_append(buf, chunk, n)) {
+            fclose(file);
+            return false;
+        }
+    }
+    fclose(file);
+    return true;
+}
+
+/*
+ * Build multipart/form-data body from:
+ *   multipart.fields: { name: value, ... }  (text fields)
+ *   multipart.files:  [ { name, path, filename?, content_type? }, ... ]
+ */
+static char *cap_http_request_build_multipart(const cJSON *multipart,
+                                              const char *boundary,
+                                              size_t *out_len,
+                                              const char **out_error)
+{
+    cap_http_multipart_buf_t body = {0};
+    const cJSON *fields = NULL;
+    const cJSON *files = NULL;
+    const cJSON *item = NULL;
+    int file_count = 0;
+    int field_count = 0;
+    char line[512];
+
+    *out_len = 0;
+    *out_error = NULL;
+
+    if (!cJSON_IsObject(multipart)) {
+        *out_error = "multipart must be an object";
+        return NULL;
+    }
+    fields = cJSON_GetObjectItem(multipart, "fields");
+    files = cJSON_GetObjectItem(multipart, "files");
+    if (fields && !cJSON_IsObject(fields)) {
+        *out_error = "multipart.fields must be an object";
+        return NULL;
+    }
+    if (files && !cJSON_IsArray(files)) {
+        *out_error = "multipart.files must be an array";
+        return NULL;
+    }
+
+    if (fields) {
+        cJSON_ArrayForEach(item, fields) {
+            if (!item->string || !cJSON_IsString(item) || !item->valuestring) {
+                *out_error = "multipart.fields values must be strings";
+                goto fail;
+            }
+            field_count++;
+            if (field_count > CAP_HTTP_REQUEST_MULTIPART_FIELDS) {
+                *out_error = "too many multipart fields";
+                goto fail;
+            }
+            snprintf(line, sizeof(line), "--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n",
+                     boundary, item->string);
+            if (!cap_http_multipart_append_str(&body, line) ||
+                    !cap_http_multipart_append_str(&body, item->valuestring) ||
+                    !cap_http_multipart_append_str(&body, "\r\n")) {
+                *out_error = "multipart body too large";
+                goto fail;
+            }
+        }
+    }
+
+    if (files) {
+        cJSON_ArrayForEach(item, files) {
+            const cJSON *name_item;
+            const cJSON *path_item;
+            const cJSON *filename_item;
+            const cJSON *ctype_item;
+            const char *name;
+            const char *path;
+            const char *filename;
+            const char *ctype;
+
+            if (!cJSON_IsObject(item)) {
+                *out_error = "multipart.files entries must be objects";
+                goto fail;
+            }
+            file_count++;
+            if (file_count > CAP_HTTP_REQUEST_MULTIPART_FILES) {
+                *out_error = "too many multipart files";
+                goto fail;
+            }
+            name_item = cJSON_GetObjectItem(item, "name");
+            path_item = cJSON_GetObjectItem(item, "path");
+            filename_item = cJSON_GetObjectItem(item, "filename");
+            ctype_item = cJSON_GetObjectItem(item, "content_type");
+            if (!cJSON_IsString(name_item) || !name_item->valuestring[0] ||
+                    !cJSON_IsString(path_item) || !path_item->valuestring[0]) {
+                *out_error = "multipart.files entries require name and path";
+                goto fail;
+            }
+            name = name_item->valuestring;
+            path = path_item->valuestring;
+            filename = (cJSON_IsString(filename_item) && filename_item->valuestring[0])
+                       ? filename_item->valuestring : path;
+            ctype = (cJSON_IsString(ctype_item) && ctype_item->valuestring[0])
+                    ? ctype_item->valuestring : "application/octet-stream";
+
+            snprintf(line, sizeof(line),
+                     "--%s\r\nContent-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\nContent-Type: %s\r\n\r\n",
+                     boundary, name, filename, ctype);
+            if (!cap_http_multipart_append_str(&body, line) ||
+                    !cap_http_multipart_append_file(&body, path) ||
+                    !cap_http_multipart_append_str(&body, "\r\n")) {
+                *out_error = "multipart file missing or body too large";
+                goto fail;
+            }
+        }
+    }
+
+    if (field_count == 0 && file_count == 0) {
+        *out_error = "multipart requires fields and/or files";
+        goto fail;
+    }
+
+    snprintf(line, sizeof(line), "--%s--\r\n", boundary);
+    if (!cap_http_multipart_append_str(&body, line)) {
+        *out_error = "multipart body too large";
+        goto fail;
+    }
+
+    *out_len = body.len;
+    return body.data;
+
+fail:
+    free(body.data);
+    return NULL;
+}
+
 static esp_err_t cap_http_request_execute(const char *input_json,
                                           const claw_cap_call_context_t *ctx,
                                           char *output,
@@ -391,9 +604,11 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     cJSON *method_item = NULL;
     cJSON *headers_item = NULL;
     cJSON *body_item = NULL;
+    cJSON *multipart_item = NULL;
     cJSON *timeout_item = NULL;
     cJSON *max_body_item = NULL;
     cJSON *save_path_item = NULL;
+    cJSON *save_direct_item = NULL;
     cJSON *max_file_item = NULL;
     cap_http_request_buf_t buf = {0};
     esp_http_client_config_t config = {0};
@@ -407,6 +622,11 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     const char *save_path = NULL;
     char *save_path_copy = NULL;
     char *tmp_save_path = NULL;
+    char *multipart_body = NULL;
+    size_t multipart_len = 0;
+    char multipart_boundary[48];
+    char multipart_ctype[80];
+    const char *multipart_error = NULL;
     char host[128] = {0};
 
     (void)ctx;
@@ -431,9 +651,11 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     method_item = cJSON_GetObjectItem(input, "method");
     headers_item = cJSON_GetObjectItem(input, "headers");
     body_item = cJSON_GetObjectItem(input, "body");
+    multipart_item = cJSON_GetObjectItem(input, "multipart");
     timeout_item = cJSON_GetObjectItem(input, "timeout_ms");
     max_body_item = cJSON_GetObjectItem(input, "max_body_bytes");
     save_path_item = cJSON_GetObjectItem(input, "save_path");
+    save_direct_item = cJSON_GetObjectItem(input, "save_direct");
     max_file_item = cJSON_GetObjectItem(input, "max_file_bytes");
 
     if (!cJSON_IsString(url_item) || !url_item->valuestring || !url_item->valuestring[0]) {
@@ -538,6 +760,13 @@ static esp_err_t cap_http_request_execute(const char *input_json,
         snprintf(output, output_size, "Error: headers must be an object");
         return ESP_ERR_INVALID_ARG;
     }
+    if (body_item && multipart_item) {
+        cJSON_Delete(input);
+        free(tmp_save_path);
+        free(save_path_copy);
+        snprintf(output, output_size, "Error: body and multipart are mutually exclusive");
+        return ESP_ERR_INVALID_ARG;
+    }
     if (body_item &&
             (method == HTTP_METHOD_GET || method == HTTP_METHOD_HEAD) &&
             body_item->valuestring &&
@@ -548,22 +777,59 @@ static esp_err_t cap_http_request_execute(const char *input_json,
         snprintf(output, output_size, "Error: GET/HEAD does not accept body");
         return ESP_ERR_INVALID_ARG;
     }
+    if (multipart_item && (method == HTTP_METHOD_GET || method == HTTP_METHOD_HEAD)) {
+        cJSON_Delete(input);
+        free(tmp_save_path);
+        free(save_path_copy);
+        snprintf(output, output_size, "Error: GET/HEAD does not accept multipart");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (multipart_item) {
+        snprintf(multipart_boundary, sizeof(multipart_boundary),
+                 "%s-%08lx%04x",
+                 CAP_HTTP_REQUEST_BOUNDARY_PREFIX,
+                 (unsigned long)esp_timer_get_time(),
+                 (unsigned)(esp_random() & 0xffff));
+        multipart_body = cap_http_request_build_multipart(multipart_item,
+                                                          multipart_boundary,
+                                                          &multipart_len,
+                                                          &multipart_error);
+        if (!multipart_body) {
+            cJSON_Delete(input);
+            free(tmp_save_path);
+            free(save_path_copy);
+            snprintf(output, output_size, "Error: %s",
+                     multipart_error ? multipart_error : "failed to build multipart body");
+            return ESP_ERR_INVALID_ARG;
+        }
+        snprintf(multipart_ctype, sizeof(multipart_ctype),
+                 "multipart/form-data; boundary=%s", multipart_boundary);
+    }
 
     if (save_path_copy) {
-        size_t tmp_path_len = strlen(save_path_copy) + sizeof(".tmp");
+        bool save_direct = cJSON_IsTrue(save_direct_item);
 
-        tmp_save_path = malloc(tmp_path_len);
-        if (!tmp_save_path) {
-            cJSON_Delete(input);
-            free(save_path_copy);
-            snprintf(output, output_size, "Error: out of memory");
-            return ESP_ERR_NO_MEM;
+        buf.file_direct = save_direct;
+        if (save_direct) {
+            /* Write the final path immediately so a concurrent reader can see bytes grow. */
+            buf.file = fopen(save_path_copy, "wb");
+        } else {
+            size_t tmp_path_len = strlen(save_path_copy) + sizeof(".tmp");
+
+            tmp_save_path = malloc(tmp_path_len);
+            if (!tmp_save_path) {
+                cJSON_Delete(input);
+                free(multipart_body);
+                free(save_path_copy);
+                snprintf(output, output_size, "Error: out of memory");
+                return ESP_ERR_NO_MEM;
+            }
+            snprintf(tmp_save_path, tmp_path_len, "%s.tmp", save_path_copy);
+            buf.file = fopen(tmp_save_path, "wb");
         }
-        snprintf(tmp_save_path, tmp_path_len, "%s.tmp", save_path_copy);
-
-        buf.file = fopen(tmp_save_path, "wb");
         if (!buf.file) {
             cJSON_Delete(input);
+            free(multipart_body);
             free(tmp_save_path);
             free(save_path_copy);
             snprintf(output, output_size, "Error: failed to open save_path");
@@ -575,6 +841,7 @@ static esp_err_t cap_http_request_execute(const char *input_json,
         buf.data = calloc(1, buf.cap);
         if (!buf.data) {
             cJSON_Delete(input);
+            free(multipart_body);
             snprintf(output, output_size, "Error: out of memory");
             return ESP_ERR_NO_MEM;
         }
@@ -600,6 +867,7 @@ static esp_err_t cap_http_request_execute(const char *input_json,
             remove(tmp_save_path);
         }
         free(buf.data);
+        free(multipart_body);
         free(tmp_save_path);
         free(save_path_copy);
         snprintf(output, output_size, "Error: failed to init HTTP client");
@@ -616,7 +884,13 @@ static esp_err_t cap_http_request_execute(const char *input_json,
             }
         }
     }
-    if (body_item && body_item->valuestring) {
+    if (multipart_body) {
+        /* Override only if caller did not set Content-Type explicitly. */
+        if (!headers_item || !cJSON_GetObjectItem(headers_item, "Content-Type")) {
+            esp_http_client_set_header(client, "Content-Type", multipart_ctype);
+        }
+        esp_http_client_set_post_field(client, multipart_body, (int)multipart_len);
+    } else if (body_item && body_item->valuestring) {
         esp_http_client_set_post_field(client, body_item->valuestring, strlen(body_item->valuestring));
     }
 
@@ -624,6 +898,7 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
     cJSON_Delete(input);
+    free(multipart_body);
     if (buf.file && fclose(buf.file) != 0 && err == ESP_OK) {
         buf.file_write_failed = true;
         err = ESP_FAIL;
@@ -633,6 +908,8 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     if (err != ESP_OK) {
         if (tmp_save_path) {
             remove(tmp_save_path);
+        } else if (buf.file_direct && save_path_copy) {
+            remove(save_path_copy);
         }
         free(buf.data);
         snprintf(output,
@@ -646,15 +923,17 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     }
 
     if (save_path_copy) {
-        if (rename(tmp_save_path, save_path_copy) != 0) {
-            remove(save_path_copy);
+        if (tmp_save_path) {
             if (rename(tmp_save_path, save_path_copy) != 0) {
-                remove(tmp_save_path);
-                free(buf.data);
-                free(tmp_save_path);
-                free(save_path_copy);
-                snprintf(output, output_size, "Error: failed to finalize save_path");
-                return ESP_FAIL;
+                remove(save_path_copy);
+                if (rename(tmp_save_path, save_path_copy) != 0) {
+                    remove(tmp_save_path);
+                    free(buf.data);
+                    free(tmp_save_path);
+                    free(save_path_copy);
+                    snprintf(output, output_size, "Error: failed to finalize save_path");
+                    return ESP_FAIL;
+                }
             }
         }
         snprintf(output,
@@ -691,7 +970,14 @@ static const claw_cap_descriptor_t s_http_request_descriptors[] = {
         "\"method\":{\"type\":\"string\",\"enum\":[\"GET\",\"POST\",\"PUT\",\"PATCH\",\"DELETE\",\"HEAD\"]},"
         "\"headers\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}},"
         "\"body\":{\"type\":\"string\"},"
+        "\"multipart\":{\"type\":\"object\",\"properties\":{"
+        "\"fields\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}},"
+        "\"files\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{"
+        "\"name\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"},"
+        "\"filename\":{\"type\":\"string\"},\"content_type\":{\"type\":\"string\"}},"
+        "\"required\":[\"name\",\"path\"]}}}},"
         "\"save_path\":{\"type\":\"string\"},"
+        "\"save_direct\":{\"type\":\"boolean\"},"
         "\"timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":120000},"
         "\"max_body_bytes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
         "\"max_file_bytes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":2147483647}},"

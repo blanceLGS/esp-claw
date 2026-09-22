@@ -43,8 +43,10 @@ devices:
       adc_enabled: true
       adc_max_channel: 4
       # Bit0=Mic0, Bit1=Mic1(ref), Bit2=Mic2, Bit3=Mic3 — dual mic + reference
+      # Bit0=MIC1, Bit1=MIC2 (this board's dual mic). Bit2/3=MIC3/4 unused.
+      # int(mask,2): "0011" -> MIC1|MIC2. Driver hardcodes PGA 30dB at init.
       adc_channel_mask: "0011"
-      adc_init_gain: 0          # dB
+      adc_init_gain: 0          # dB — ES7210 init already sets 30dB PGA
     peripherals:
       - name: i2s_audio_in
       - name: i2c_master

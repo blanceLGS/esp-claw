@@ -26,6 +26,7 @@
 static const char *TAG = "wifi_manager";
 
 #define WIFI_CONNECTED_BIT BIT0
+#define WM_DHCPS_OFFER_DNS 0x02
 
 #ifndef CONFIG_APP_WIFI_AP_SSID_PREFIX
 #define CONFIG_APP_WIFI_AP_SSID_PREFIX "esp-claw"
@@ -199,6 +200,98 @@ static void refresh_ap_ip_str(void)
     }
 }
 
+/*
+ * SoftAP clients need a reachable DNS. Copy the STA resolver into the AP
+ * DHCP offer so phones/laptops on the AP can resolve names through NAPT.
+ *
+ * Short lease (default 120s, here 60s) lets clients pick up the updated DNS
+ * soon after STA connects and NAPT is enabled.
+ */
+#define WM_AP_DHCP_LEASE_SEC 60
+
+static void wifi_manager_ap_relay_dns(void)
+{
+    esp_netif_dns_info_t dns = {0};
+    uint8_t offer_dns = WM_DHCPS_OFFER_DNS;
+    uint32_t lease_sec = WM_AP_DHCP_LEASE_SEC;
+    esp_err_t err;
+
+    if (!s_ap_netif) {
+        return;
+    }
+
+    err = s_sta_netif ? esp_netif_get_dns_info(s_sta_netif, ESP_NETIF_DNS_MAIN, &dns) : ESP_FAIL;
+    if (err != ESP_OK || dns.ip.u_addr.ip4.addr == 0) {
+        /* Public resolver until STA DNS is ready — avoid offering 192.168.4.1
+         * (AP itself has no DNS service). */
+        dns.ip.u_addr.ip4.addr = ESP_IP4TOADDR(114, 114, 114, 114);
+        dns.ip.type = ESP_IPADDR_TYPE_V4;
+    }
+
+    esp_netif_dhcps_stop(s_ap_netif);
+    esp_netif_dhcps_option(s_ap_netif,
+                           ESP_NETIF_OP_SET,
+                           ESP_NETIF_DOMAIN_NAME_SERVER,
+                           &offer_dns,
+                           sizeof(offer_dns));
+    esp_netif_set_dns_info(s_ap_netif, ESP_NETIF_DNS_MAIN, &dns);
+    esp_netif_dhcps_option(s_ap_netif,
+                           ESP_NETIF_OP_SET,
+                           ESP_NETIF_IP_ADDRESS_LEASE_TIME,
+                           &lease_sec,
+                           sizeof(lease_sec));
+    esp_netif_dhcps_start(s_ap_netif);
+    ESP_LOGI(TAG, "AP DHCP DNS set to " IPSTR " lease=%us",
+             IP2STR(&dns.ip.u_addr.ip4), (unsigned)lease_sec);
+}
+
+/*
+ * Call as soon as AP is up so clients that join before STA has an IP still
+ * receive a usable DNS option. Without this, ESP-IDF's default DHCP offer
+ * uses the AP address as DNS and name resolution stays broken even after
+ * NAPT is later enabled (client keeps the old lease).
+ */
+static void wifi_manager_ap_prepare_dhcp(void)
+{
+    wifi_manager_ap_relay_dns();
+}
+
+static void wifi_manager_ap_set_napt(bool enable)
+{
+    if (!s_ap_netif) {
+        return;
+    }
+#if defined(CONFIG_LWIP_IP_FORWARD) && defined(CONFIG_LWIP_IPV4_NAPT)
+    esp_err_t err = enable ? esp_netif_napt_enable(s_ap_netif) : esp_netif_napt_disable(s_ap_netif);
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "AP NAPT %s failed: %s", enable ? "enable" : "disable", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "AP NAPT %s", enable ? "enabled" : "disabled");
+    }
+#else
+    if (enable) {
+        ESP_LOGW(TAG, "AP internet sharing unavailable: enable CONFIG_LWIP_IP_FORWARD and CONFIG_LWIP_IPV4_NAPT");
+    }
+#endif
+}
+
+static void wifi_manager_enable_ap_internet_share(void)
+{
+    if (!s_ap_netif || !s_sta_netif) {
+        return;
+    }
+    /* Route AP clients out through STA. */
+    esp_netif_set_default_netif(s_sta_netif);
+    wifi_manager_ap_relay_dns();
+    wifi_manager_ap_set_napt(true);
+}
+
+static void wifi_manager_disable_ap_internet_share(void)
+{
+    wifi_manager_ap_set_napt(false);
+}
+
 static void reset_sta_runtime_state(void)
 {
     strlcpy(s_ip_addr, "0.0.0.0", sizeof(s_ip_addr));
@@ -322,6 +415,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             strlcpy(s_ip_addr, "0.0.0.0", sizeof(s_ip_addr));
             if (s_connected) {
                 s_connected = false;
+                wifi_manager_disable_ap_internet_share();
                 notify_state_changed(false);
             }
             if (!s_sta_configured) {
@@ -338,6 +432,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         case WIFI_EVENT_AP_START:
             s_ap_active = true;
             refresh_ap_ip_str();
+            /* Offer public DNS immediately so early AP clients do not stick
+             * to the default AP-as-DNS lease before STA is up. */
+            wifi_manager_ap_prepare_dhcp();
+            if (s_connected) {
+                wifi_manager_enable_ap_internet_share();
+            }
             ESP_LOGW(TAG, "*** Provisioning AP active: %s @ %s ***", s_ap_ssid, s_ap_ip);
             notify_state_changed(true);
             return;
@@ -359,6 +459,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         if (s_reconnect_timer) esp_timer_stop(s_reconnect_timer);
         if (wifi_manager_close_on_sta() && s_ap_active) {
             ESP_LOGI(TAG, "STA connected, closing AP per ap_behavior=close_on_sta");
+            wifi_manager_disable_ap_internet_share();
             esp_err_t ap_err = esp_wifi_set_mode(WIFI_MODE_STA);
             if (ap_err == ESP_OK) {
                 s_ap_active = false;
@@ -366,6 +467,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             } else {
                 ESP_LOGW(TAG, "Failed to switch to STA-only mode: %s", esp_err_to_name(ap_err));
             }
+        } else if (s_ap_active) {
+            wifi_manager_enable_ap_internet_share();
         }
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         notify_state_changed(true);

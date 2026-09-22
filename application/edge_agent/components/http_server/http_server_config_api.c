@@ -70,6 +70,20 @@ static const config_field_def_t CONFIG_FIELDS[] = {
     CONFIG_FIELD("search",       search_tavily_key),
     CONFIG_FIELD("search",       search_http_allowlist),
 
+    CONFIG_FIELD("voice",        asr_provider),
+    CONFIG_FIELD("voice",        asr_api_key),
+    CONFIG_FIELD("voice",        asr_api_secret),
+    CONFIG_FIELD("voice",        asr_app_id),
+    CONFIG_FIELD("voice",        asr_model),
+    CONFIG_FIELD("voice",        asr_endpoint),
+    CONFIG_FIELD("voice",        voice_wake_words),
+    CONFIG_FIELD("voice",        voice_enable),
+    CONFIG_FIELD("voice",        tts_api_key),
+    CONFIG_FIELD("voice",        tts_base_url),
+    CONFIG_FIELD("voice",        tts_model),
+    CONFIG_FIELD("voice",        tts_voice),
+    CONFIG_FIELD("voice",        tts_volume),
+
     CONFIG_FIELD("capabilities", enabled_cap_groups),
     CONFIG_FIELD("capabilities", llm_visible_cap_groups),
 
@@ -337,7 +351,8 @@ static esp_err_t config_post_handler(httpd_req_t *req)
         }
         if ((strcmp(field->name, "llm_supports_tools") == 0 ||
                 strcmp(field->name, "llm_supports_vision") == 0 ||
-                strcmp(field->name, "llm_image_remote_url_only") == 0) &&
+                strcmp(field->name, "llm_image_remote_url_only") == 0 ||
+                strcmp(field->name, "voice_enable") == 0) &&
                 !is_boolean_string(item->valuestring)) {
             cJSON_Delete(root);
             free(config);

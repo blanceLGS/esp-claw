@@ -2070,6 +2070,154 @@ static esp_err_t claw_event_router_execute_action(const claw_event_router_rule_t
     }
 }
 
+/*
+ * /session must work even when the current chat session is blocked by the
+ * memory size gate (which rejects all agent requests). Intercept the slash
+ * command locally and call session_command without going through the LLM.
+ */
+#define CLAW_EVENT_ROUTER_LOCAL_SESSION_PREFIX "/session"
+
+static bool claw_event_router_parse_local_session_command(const char *text, const char **out_args)
+{
+    size_t prefix_len = sizeof(CLAW_EVENT_ROUTER_LOCAL_SESSION_PREFIX) - 1;
+
+    if (!text || !out_args) {
+        return false;
+    }
+    if (strncmp(text, CLAW_EVENT_ROUTER_LOCAL_SESSION_PREFIX, prefix_len) != 0) {
+        return false;
+    }
+    if (text[prefix_len] == '\0') {
+        *out_args = "";
+        return true;
+    }
+    if (text[prefix_len] == ' ' || text[prefix_len] == '\t') {
+        const char *cursor = text + prefix_len;
+
+        while (*cursor == ' ' || *cursor == '\t') {
+            cursor++;
+        }
+        *out_args = cursor;
+        return true;
+    }
+
+    return false;
+}
+
+static esp_err_t claw_event_router_send_text_reply(const claw_event_t *event, const char *message)
+{
+    char cap_name[CLAW_EVENT_ROUTER_cap_SIZE] = {0};
+    char output[256] = {0};
+    cJSON *payload_root = NULL;
+    char *payload = NULL;
+    claw_cap_call_context_t call_ctx = {0};
+    const char *channel = NULL;
+    const char *chat_id = NULL;
+    esp_err_t err;
+
+    if (!event || !message || !message[0]) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    channel = event->target_channel[0] ? event->target_channel : event->source_channel;
+    chat_id = event->target_endpoint[0] ? event->target_endpoint : event->chat_id;
+    if (!channel[0] || !chat_id[0]) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    err = claw_event_router_resolve_outbound_cap(event, channel, chat_id, cap_name, sizeof(cap_name));
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    payload_root = cJSON_CreateObject();
+    if (!payload_root) {
+        return ESP_ERR_NO_MEM;
+    }
+    cJSON_AddStringToObject(payload_root, "chat_id", chat_id);
+    cJSON_AddStringToObject(payload_root, "message", message);
+    cJSON_AddStringToObject(payload_root, "event_type", "message");
+    payload = cJSON_PrintUnformatted(payload_root);
+    cJSON_Delete(payload_root);
+    if (!payload) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    call_ctx.channel = channel;
+    call_ctx.chat_id = chat_id;
+    call_ctx.target_channel = channel;
+    call_ctx.target_chat_id = chat_id;
+    call_ctx.source_cap = "claw_event_router";
+    call_ctx.caller = CLAW_CAP_CALLER_SYSTEM;
+    err = claw_cap_call(cap_name, payload, &call_ctx, output, sizeof(output));
+    free(payload);
+    return err;
+}
+
+static esp_err_t claw_event_router_handle_local_session_command(const claw_event_t *event,
+                                                               const char *args,
+                                                               claw_event_router_result_t *result)
+{
+    char cap_output[768] = {0};
+    cJSON *payload_root = NULL;
+    char *payload = NULL;
+    claw_cap_call_context_t call_ctx = {0};
+    esp_err_t err;
+
+    if (!claw_cap_find("session_command")) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    payload_root = cJSON_CreateObject();
+    if (!payload_root) {
+        return ESP_ERR_NO_MEM;
+    }
+    cJSON_AddStringToObject(payload_root, "command", args ? args : "");
+    payload = cJSON_PrintUnformatted(payload_root);
+    cJSON_Delete(payload_root);
+    if (!payload) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    call_ctx.channel = event->source_channel;
+    call_ctx.chat_id = event->chat_id;
+    call_ctx.target_channel = event->target_channel[0] ? event->target_channel : event->source_channel;
+    call_ctx.target_chat_id = event->target_endpoint[0] ? event->target_endpoint : event->chat_id;
+    call_ctx.source_cap = "claw_event_router";
+    call_ctx.correlation_id = event->correlation_id[0] ? event->correlation_id : event->message_id;
+    call_ctx.caller = CLAW_CAP_CALLER_SYSTEM;
+
+    err = claw_cap_call("session_command", payload, &call_ctx, cap_output, sizeof(cap_output));
+    free(payload);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "local /session command failed for chat %s:%s: %s",
+                 event->source_channel,
+                 event->chat_id,
+                 esp_err_to_name(err));
+        return err;
+    }
+
+    ESP_LOGI(TAG, "local /session handled args=\"%s\" output_len=%u",
+             args ? args : "",
+             (unsigned int)strlen(cap_output));
+
+    err = claw_event_router_send_text_reply(event, cap_output[0] ? cap_output : "Session command completed.");
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "local /session reply failed: %s", esp_err_to_name(err));
+    }
+
+    if (result) {
+        result->matched = true;
+        result->matched_rules++;
+        result->action_count++;
+        result->route = CLAW_CAP_EVENT_ROUTE_CONSUMED;
+        strlcpy(result->first_rule_id, "__local_session__", sizeof(result->first_rule_id));
+        strlcpy(result->ack, cap_output, sizeof(result->ack));
+    }
+
+    return ESP_OK;
+}
+
 static esp_err_t claw_event_router_run_default_agent(const claw_event_t *event,
                                                      claw_event_router_result_t *result)
 {
@@ -2132,6 +2280,26 @@ static esp_err_t claw_event_router_process_event(const claw_event_t *event,
              event->source_cap,
              event->source_channel,
              event->chat_id);
+
+    if (strcmp(event->event_type, "message") == 0 && event->text && event->text[0] == '/') {
+        const char *session_args = NULL;
+
+        if (claw_event_router_parse_local_session_command(event->text, &session_args)) {
+            esp_err_t session_err = claw_event_router_handle_local_session_command(event,
+                                                                                   session_args,
+                                                                                   &local);
+
+            if (session_err != ESP_ERR_NOT_FOUND) {
+                claw_event_router_lock();
+                s_runtime->last_result = local;
+                claw_event_router_unlock();
+                if (out_result) {
+                    *out_result = local;
+                }
+                return session_err;
+            }
+        }
+    }
 
     claw_event_router_lock();
     ctx = claw_event_router_build_event_context(event);

@@ -69,6 +69,7 @@
 #include "claw_memory.h"
 #endif
 #include "claw_paths.h"
+#include "cJSON.h"
 #include "esp_check.h"
 #include "esp_log.h"
 
@@ -413,6 +414,100 @@ static esp_err_t app_cap_register_llm_config_command(void)
                         "Failed to set LLM config provider");
 
     return cap_llm_config_register_group();
+}
+
+/* Expose stored voice/TTS settings to Lua skills (not LLM-callable). */
+static esp_err_t app_cap_voice_config_get(const char *input_json,
+                                          const claw_cap_call_context_t *ctx,
+                                          char *output,
+                                          size_t output_size)
+{
+    app_claw_config_t *config = NULL;
+    cJSON *root = NULL;
+    char *printed = NULL;
+    esp_err_t err;
+
+    (void)input_json;
+    (void)ctx;
+    if (!output || output_size == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    output[0] = '\0';
+
+    config = calloc(1, sizeof(*config));
+    if (!config) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    err = app_claw_get_config(config);
+    if (err != ESP_OK) {
+        snprintf(output, output_size, "{\"error\":\"%s\"}", esp_err_to_name(err));
+        free(config);
+        return err;
+    }
+
+    root = cJSON_CreateObject();
+    if (!root) {
+        free(config);
+        return ESP_ERR_NO_MEM;
+    }
+
+    cJSON_AddStringToObject(root, "tts_api_key", config->tts_api_key);
+    cJSON_AddStringToObject(root, "tts_base_url", config->tts_base_url);
+    cJSON_AddStringToObject(root, "tts_model", config->tts_model);
+    cJSON_AddStringToObject(root, "tts_voice", config->tts_voice);
+    cJSON_AddStringToObject(root, "tts_volume", config->tts_volume);
+    cJSON_AddStringToObject(root, "asr_provider", config->asr_provider);
+    cJSON_AddStringToObject(root, "asr_api_key", config->asr_api_key);
+    cJSON_AddStringToObject(root, "asr_api_secret", config->asr_api_secret);
+    cJSON_AddStringToObject(root, "asr_app_id", config->asr_app_id);
+    cJSON_AddStringToObject(root, "asr_model", config->asr_model);
+    cJSON_AddStringToObject(root, "asr_endpoint", config->asr_endpoint);
+    cJSON_AddStringToObject(root, "voice_wake_words", config->voice_wake_words);
+    cJSON_AddStringToObject(root, "voice_enable",
+                            config->voice_enable[0] ? config->voice_enable : "true");
+
+    printed = cJSON_PrintUnformatted(root);
+    if (printed) {
+        strlcpy(output, printed, output_size);
+        cJSON_free(printed);
+    }
+
+    cJSON_Delete(root);
+    free(config);
+    return ESP_OK;
+}
+
+static const claw_cap_descriptor_t s_voice_config_caps[] = {
+    {
+        .id = "voice_config_get",
+        .name = "voice_config_get",
+        .family = "app",
+        .description = "Return stored TTS/ASR voice settings from device config (NVS-backed).",
+        .kind = CLAW_CAP_KIND_CALLABLE,
+        .cap_flags = 0,
+        .input_schema_json = "{\"type\":\"object\"}",
+        .execute = app_cap_voice_config_get,
+    },
+};
+
+static const claw_cap_group_t s_voice_config_group = {
+    .group_id = "cap_voice_config",
+    .plugin_name = "cap_voice_config",
+    .version = "1.0.0",
+    .descriptors = s_voice_config_caps,
+    .descriptor_count = sizeof(s_voice_config_caps) / sizeof(s_voice_config_caps[0]),
+};
+
+static esp_err_t app_cap_register_voice_config(const app_claw_config_t *config,
+                                               const app_claw_storage_paths_t *paths)
+{
+    (void)config;
+    (void)paths;
+    if (claw_cap_group_exists(s_voice_config_group.group_id)) {
+        return ESP_OK;
+    }
+    return claw_cap_register_group(&s_voice_config_group);
 }
 
 #if CONFIG_APP_CLAW_CAP_FILES
@@ -904,6 +999,8 @@ esp_err_t app_capabilities_init(const app_claw_config_t *config,
     ESP_RETURN_ON_ERROR(claw_cap_init(), TAG, "Failed to init claw_cap");
     ESP_GOTO_ON_ERROR(app_cap_register_llm_config_command(),
                       cleanup, TAG, "Failed to register LLM config command");
+    ESP_GOTO_ON_ERROR(app_cap_register_voice_config(NULL, NULL),
+                      cleanup, TAG, "Failed to register voice config command");
 
     entries = calloc(entry_count > 0 ? entry_count : 1, sizeof(entries[0]));
     enabled_map = calloc(entry_count > 0 ? entry_count : 1, sizeof(enabled_map[0]));

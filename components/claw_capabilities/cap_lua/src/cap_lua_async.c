@@ -854,6 +854,7 @@ static esp_err_t cap_lua_async_submit_once(const cap_lua_async_job_t *job,
 {
     size_t log_bytes;
     char *log_buf = NULL;
+    uint32_t exclusive_waited_ms = 0;
 
     if (out_recheck_lost_race) {
         *out_recheck_lost_race = false;
@@ -882,6 +883,7 @@ static esp_err_t cap_lua_async_submit_once(const cap_lua_async_job_t *job,
         char conflict_name[CAP_LUA_JOB_NAME_MAX] = {0};
         char active_dump[256] = {0};
         bool over_concurrency = false;
+        bool exclusive_conflict = false;
 
         if (xSemaphoreTake(s_job_lock, pdMS_TO_TICKS(1000)) != pdTRUE) {
             return ESP_ERR_TIMEOUT;
@@ -898,6 +900,7 @@ static esp_err_t cap_lua_async_submit_once(const cap_lua_async_job_t *job,
             int s = cap_lua_find_active_by_exclusive_locked(job->exclusive);
             if (s >= 0) {
                 conflict_slot = s;
+                exclusive_conflict = true;
                 snprintf(conflict_reason, sizeof(conflict_reason),
                          "exclusive group '%s'", job->exclusive);
             }
@@ -929,6 +932,29 @@ static esp_err_t cap_lua_async_submit_once(const cap_lua_async_job_t *job,
         }
 
         if (!job->replace) {
+            /* Queue behind same exclusive group (e.g. tts) instead of failing.
+             * Name conflicts still fail fast (same logical job). */
+            if (exclusive_conflict) {
+                if (exclusive_waited_ms >= CAP_LUA_EXCLUSIVE_WAIT_MAX_MS) {
+                    if (err_out && err_out_size > 0) {
+                        snprintf(err_out, err_out_size,
+                                 "Timeout waiting for %s held by job '%s' (id=%s) after %u ms.",
+                                 conflict_reason,
+                                 conflict_name[0] ? conflict_name : "(unnamed)",
+                                 conflict_id,
+                                 (unsigned)CAP_LUA_EXCLUSIVE_WAIT_MAX_MS);
+                    }
+                    return ESP_ERR_TIMEOUT;
+                }
+                ESP_LOGI(TAG, "Waiting for %s (job='%s' id=%s) elapsed=%u ms",
+                         conflict_reason,
+                         conflict_name[0] ? conflict_name : "(unnamed)",
+                         conflict_id,
+                         (unsigned)exclusive_waited_ms);
+                vTaskDelay(pdMS_TO_TICKS(CAP_LUA_EXCLUSIVE_WAIT_POLL_MS));
+                exclusive_waited_ms += CAP_LUA_EXCLUSIVE_WAIT_POLL_MS;
+                continue;
+            }
             if (err_out && err_out_size > 0) {
                 snprintf(err_out, err_out_size,
                          "Conflict with %s held by job '%s' (id=%s). "

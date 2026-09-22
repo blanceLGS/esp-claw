@@ -284,6 +284,28 @@ static void cap_session_mgr_write_storage_error(const char *action,
              ctx->chat_id,
              alias ? alias : "",
              esp_err_to_name(err));
+
+    if (err == ESP_ERR_NO_MEM) {
+        cap_session_mgr_write_message(output,
+                                      output_size,
+                                      "Session command failed: too many sessions in this chat. "
+                                      "Delete an unused session first with /session delete <name>.");
+        return;
+    }
+    if (err == ESP_ERR_INVALID_RESPONSE) {
+        cap_session_mgr_write_message(output,
+                                      output_size,
+                                      "Session command failed: session mapping file is corrupted. "
+                                      "Create a new session or delete the old mapping under the session chat_map directory.");
+        return;
+    }
+    if (err == ESP_ERR_INVALID_SIZE) {
+        cap_session_mgr_write_message(output,
+                                      output_size,
+                                      "Session command failed: session path is too long for storage.");
+        return;
+    }
+
     cap_session_mgr_write_message(output,
                                   output_size,
                                   "Session command failed: unable to access session storage.");
@@ -300,19 +322,35 @@ static esp_err_t cap_session_mgr_write_list_output(const claw_session_mgr_alias_
     if (err != ESP_OK) {
         return err;
     }
-    for (size_t i = 0; i < map->session_count; i++) {
+    /* Show current first so the active session is obvious. */
+    if (map->current_alias[0]) {
         err = cap_session_mgr_append_output(output,
                                             output_size,
                                             &offset,
-                                            "\n* %s%s",
-                                            map->sessions[i],
-                                            strcmp(map->sessions[i], map->current_alias) == 0 ? " (current)" : "");
+                                            "\n* %s (current)",
+                                            map->current_alias);
         if (err != ESP_OK) {
             return err;
         }
     }
-
-    return ESP_OK;
+    for (size_t i = 0; i < map->session_count; i++) {
+        if (strcmp(map->sessions[i], map->current_alias) == 0) {
+            continue;
+        }
+        err = cap_session_mgr_append_output(output,
+                                            output_size,
+                                            &offset,
+                                            "\n* %s",
+                                            map->sessions[i]);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    err = cap_session_mgr_append_output(output,
+                                        output_size,
+                                        &offset,
+                                        "\nUse /session switch <name> or /session delete <name>.");
+    return err;
 }
 
 static esp_err_t cap_session_mgr_command_execute(cap_session_mgr_command_t command,
@@ -389,16 +427,17 @@ static esp_err_t cap_session_mgr_command_execute(cap_session_mgr_command_t comma
         return ESP_OK;
     }
     if (command == CAP_SESSION_MGR_CMD_DELETE && err == ESP_ERR_INVALID_STATE) {
+        /* Should be rare after auto-switch; keep a clear fallback. */
         cap_session_mgr_write_format(output,
                                      output_size,
-                                     "Cannot delete the current session \"%s\". Switch to another session first.",
+                                     "Cannot delete session \"%s\" right now. Send /session list and try again.",
                                      alias);
         return ESP_OK;
     }
     if (command == CAP_SESSION_MGR_CMD_DELETE && err == ESP_ERR_NOT_SUPPORTED) {
         cap_session_mgr_write_message(output,
                                       output_size,
-                                      "Session command failed: session history deletion is unavailable.");
+                                      "Cannot delete the only remaining session. Create another session first with /session new.");
         return ESP_OK;
     }
     if (err == ESP_ERR_INVALID_STATE) {
