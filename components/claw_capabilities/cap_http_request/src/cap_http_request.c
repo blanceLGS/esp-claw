@@ -43,6 +43,7 @@ typedef struct {
     size_t max_file_bytes;
     bool file_write_failed;
     bool truncated;
+    bool file_direct;
     bool check_redirect_allowlist;
     char redirect_location[CAP_HTTP_REQUEST_REDIRECT_URL_MAX];
 } cap_http_request_buf_t;
@@ -120,6 +121,9 @@ static esp_err_t cap_http_request_event_handler(esp_http_client_event_t *event)
                 return ESP_FAIL;
             }
             buf->file_bytes += write_len;
+            if (buf->file_direct) {
+                fflush(buf->file);
+            }
             break;
         }
 
@@ -604,6 +608,7 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     cJSON *timeout_item = NULL;
     cJSON *max_body_item = NULL;
     cJSON *save_path_item = NULL;
+    cJSON *save_direct_item = NULL;
     cJSON *max_file_item = NULL;
     cap_http_request_buf_t buf = {0};
     esp_http_client_config_t config = {0};
@@ -650,6 +655,7 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     timeout_item = cJSON_GetObjectItem(input, "timeout_ms");
     max_body_item = cJSON_GetObjectItem(input, "max_body_bytes");
     save_path_item = cJSON_GetObjectItem(input, "save_path");
+    save_direct_item = cJSON_GetObjectItem(input, "save_direct");
     max_file_item = cJSON_GetObjectItem(input, "max_file_bytes");
 
     if (!cJSON_IsString(url_item) || !url_item->valuestring || !url_item->valuestring[0]) {
@@ -801,19 +807,26 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     }
 
     if (save_path_copy) {
-        size_t tmp_path_len = strlen(save_path_copy) + sizeof(".tmp");
+        bool save_direct = cJSON_IsTrue(save_direct_item);
 
-        tmp_save_path = malloc(tmp_path_len);
-        if (!tmp_save_path) {
-            cJSON_Delete(input);
-            free(multipart_body);
-            free(save_path_copy);
-            snprintf(output, output_size, "Error: out of memory");
-            return ESP_ERR_NO_MEM;
+        buf.file_direct = save_direct;
+        if (save_direct) {
+            /* Write the final path immediately so a concurrent reader can see bytes grow. */
+            buf.file = fopen(save_path_copy, "wb");
+        } else {
+            size_t tmp_path_len = strlen(save_path_copy) + sizeof(".tmp");
+
+            tmp_save_path = malloc(tmp_path_len);
+            if (!tmp_save_path) {
+                cJSON_Delete(input);
+                free(multipart_body);
+                free(save_path_copy);
+                snprintf(output, output_size, "Error: out of memory");
+                return ESP_ERR_NO_MEM;
+            }
+            snprintf(tmp_save_path, tmp_path_len, "%s.tmp", save_path_copy);
+            buf.file = fopen(tmp_save_path, "wb");
         }
-        snprintf(tmp_save_path, tmp_path_len, "%s.tmp", save_path_copy);
-
-        buf.file = fopen(tmp_save_path, "wb");
         if (!buf.file) {
             cJSON_Delete(input);
             free(multipart_body);
@@ -895,6 +908,8 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     if (err != ESP_OK) {
         if (tmp_save_path) {
             remove(tmp_save_path);
+        } else if (buf.file_direct && save_path_copy) {
+            remove(save_path_copy);
         }
         free(buf.data);
         snprintf(output,
@@ -908,15 +923,17 @@ static esp_err_t cap_http_request_execute(const char *input_json,
     }
 
     if (save_path_copy) {
-        if (rename(tmp_save_path, save_path_copy) != 0) {
-            remove(save_path_copy);
+        if (tmp_save_path) {
             if (rename(tmp_save_path, save_path_copy) != 0) {
-                remove(tmp_save_path);
-                free(buf.data);
-                free(tmp_save_path);
-                free(save_path_copy);
-                snprintf(output, output_size, "Error: failed to finalize save_path");
-                return ESP_FAIL;
+                remove(save_path_copy);
+                if (rename(tmp_save_path, save_path_copy) != 0) {
+                    remove(tmp_save_path);
+                    free(buf.data);
+                    free(tmp_save_path);
+                    free(save_path_copy);
+                    snprintf(output, output_size, "Error: failed to finalize save_path");
+                    return ESP_FAIL;
+                }
             }
         }
         snprintf(output,
@@ -960,6 +977,7 @@ static const claw_cap_descriptor_t s_http_request_descriptors[] = {
         "\"filename\":{\"type\":\"string\"},\"content_type\":{\"type\":\"string\"}},"
         "\"required\":[\"name\",\"path\"]}}}},"
         "\"save_path\":{\"type\":\"string\"},"
+        "\"save_direct\":{\"type\":\"boolean\"},"
         "\"timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":120000},"
         "\"max_body_bytes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
         "\"max_file_bytes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":2147483647}},"

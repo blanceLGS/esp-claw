@@ -65,6 +65,9 @@
 #if CONFIG_APP_CLAW_LUA_MODULE_DELAY
 #include "lua_module_delay.h"
 #endif
+#if CONFIG_APP_CLAW_LUA_MODULE_CRYPTO
+#include "lua_module_crypto.h"
+#endif
 #if CONFIG_APP_CLAW_LUA_MODULE_SOCKET
 #include "lua_module_socket.h"
 #endif
@@ -454,6 +457,14 @@ static esp_err_t app_lua_register_delay(const char *fatfs_base_path)
 }
 #endif
 
+#if CONFIG_APP_CLAW_LUA_MODULE_CRYPTO
+static esp_err_t app_lua_register_crypto(const char *fatfs_base_path)
+{
+    (void)fatfs_base_path;
+    return lua_module_crypto_register();
+}
+#endif
+
 #if CONFIG_APP_CLAW_LUA_MODULE_SOCKET
 static esp_err_t app_lua_register_socket(const char *fatfs_base_path)
 {
@@ -679,6 +690,9 @@ static const app_lua_module_entry_t s_lua_module_entries[] = {
 #endif
 #if CONFIG_APP_CLAW_LUA_MODULE_DELAY
     { "delay", "Delay", app_lua_register_delay },
+#endif
+#if CONFIG_APP_CLAW_LUA_MODULE_CRYPTO
+    { "crypto", "Crypto", app_lua_register_crypto },
 #endif
 #if CONFIG_APP_CLAW_LUA_MODULE_SOCKET
     { "socket", "Socket", app_lua_register_socket },

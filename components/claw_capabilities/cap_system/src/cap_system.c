@@ -843,8 +843,9 @@ static esp_err_t cap_system_execute_get_current_time(const char *input_json,
                                                      size_t output_size)
 {
     esp_err_t err;
+    cJSON *input = NULL;
+    bool force = false;
 
-    (void)input_json;
     (void)ctx;
 
     if (!output || output_size == 0) {
@@ -852,7 +853,23 @@ static esp_err_t cap_system_execute_get_current_time(const char *input_json,
         return ESP_ERR_INVALID_ARG;
     }
 
-    err = cap_system_get_current_time(output, output_size);
+    if (input_json && input_json[0]) {
+        input = cJSON_Parse(input_json);
+        if (input && cJSON_IsObject(input)) {
+            cJSON *force_item = cJSON_GetObjectItem(input, "force");
+            if (cJSON_IsTrue(force_item)) {
+                force = true;
+            }
+        }
+        cJSON_Delete(input);
+    }
+
+    if (force) {
+        ESP_LOGI(TAG, "get_current_time: force=true, syncing via SNTP");
+        err = cap_system_sync_time_now(output, output_size);
+    } else {
+        err = cap_system_get_current_time(output, output_size);
+    }
     if (err != ESP_OK) {
         snprintf(output, output_size, "Error: failed to get time (%s)", esp_err_to_name(err));
         ESP_LOGE(TAG, "%s", output);
@@ -932,10 +949,10 @@ static const claw_cap_descriptor_t s_system_descriptors[] = {
         .id = "get_current_time",
         .name = "get_current_time",
         .family = "system",
-        .description = "Return formatted current local time. Sync with SNTP only when the clock is invalid.",
+        .description = "Return formatted current local time. Sync with SNTP only when the clock is invalid. Pass force=true to always re-sync.",
         .kind = CLAW_CAP_KIND_CALLABLE,
         .cap_flags = CLAW_CAP_FLAG_CALLABLE_BY_LLM,
-        .input_schema_json = "{\"type\":\"object\",\"properties\":{}}",
+        .input_schema_json = "{\"type\":\"object\",\"properties\":{\"force\":{\"type\":\"boolean\",\"description\":\"Always re-sync via SNTP, even if the clock looks valid.\"}}}",
         .execute = cap_system_execute_get_current_time,
     },
     {

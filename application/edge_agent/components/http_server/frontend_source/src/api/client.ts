@@ -35,6 +35,19 @@ export type AppConfig = {
   search_brave_key: string;
   search_tavily_key: string;
   search_http_allowlist: string;
+  asr_provider: string;
+  asr_api_key: string;
+  asr_api_secret: string;
+  asr_app_id: string;
+  asr_model: string;
+  asr_endpoint: string;
+  voice_wake_words: string;
+  voice_enable: string;
+  tts_api_key: string;
+  tts_base_url: string;
+  tts_model: string;
+  tts_voice: string;
+  tts_volume: string;
   enabled_cap_groups: string;
   llm_visible_cap_groups: string;
   enabled_lua_modules: string;
@@ -43,7 +56,7 @@ export type AppConfig = {
 
 /** Server-side configuration groups (must stay in sync with
  * CONFIG_FIELDS in http_server_config_api.c). */
-export type ConfigGroup = 'wifi' | 'llm' | 'im' | 'search' | 'capabilities' | 'skills' | 'time';
+export type ConfigGroup = 'wifi' | 'llm' | 'im' | 'search' | 'voice' | 'capabilities' | 'skills' | 'time';
 
 export const GROUP_FIELDS: Record<ConfigGroup, (keyof AppConfig)[]> = {
   wifi: ['wifi_ssid', 'wifi_password', 'ap_ssid', 'ap_password', 'ap_behavior'],
@@ -74,6 +87,21 @@ export const GROUP_FIELDS: Record<ConfigGroup, (keyof AppConfig)[]> = {
     'wechat_account_id',
   ],
   search: ['search_brave_key', 'search_tavily_key', 'search_http_allowlist'],
+  voice: [
+    'asr_provider',
+    'asr_api_key',
+    'asr_api_secret',
+    'asr_app_id',
+    'asr_model',
+    'asr_endpoint',
+    'voice_wake_words',
+    'voice_enable',
+    'tts_api_key',
+    'tts_base_url',
+    'tts_model',
+    'tts_voice',
+    'tts_volume',
+  ],
   capabilities: ['enabled_cap_groups', 'llm_visible_cap_groups'],
   skills: ['enabled_lua_modules'],
   time: ['time_timezone'],

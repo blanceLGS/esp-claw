@@ -326,6 +326,12 @@ menu "App Claw Config"
                 Enable the delay Lua module and keep app_claw's direct dependency
                 on lua_module_delay when Lua capability is enabled.
 
+        config APP_CLAW_LUA_MODULE_CRYPTO
+            bool "Enable crypto Lua module"
+            default y
+            help
+                HMAC-SHA256 and base64 for iFlytek IAT auth and similar tasks.
+
         config APP_CLAW_LUA_MODULE_SOCKET
             bool "Enable socket Lua module"
             default y

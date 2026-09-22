@@ -1,5 +1,19 @@
 [
   {
+    "id": "voice_keepalive",
+    "enabled": true,
+    "kind": "interval",
+    "interval_ms": 60000,
+    "event_type": "schedule",
+    "event_key": "voice_keepalive",
+    "source_channel": "time",
+    "content_type": "trigger",
+    "session_policy": "trigger",
+    "text": "voice_keepalive",
+    "payload_json": "{\"message\":\"ensure voice_wake resident job\",\"kind\":\"voice_keepalive\"}",
+    "max_runs": 0
+  },
+  {
     "id": "demo_interval_1m",
     "enabled": false,
     "kind": "interval",

@@ -57,3 +57,4 @@ pages/simulator/public/runtime/*
 !pages/simulator/public/runtime/.gitkeep
 
 tools/esp-term/dist/
+/*.sshknown_hosts

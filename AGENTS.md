@@ -98,6 +98,7 @@ The firmware uses two logical filesystem roots, configured at boot through `claw
 - Architecture constraints: [`design.md`](.agents/design.md)
 - docs guide: [`docs.md`](.agents/docs.md)
 - Common gotchas: [`gotchas.md`](.agents/gotchas.md)
+- Voice interaction (SiliconFlow ASR/TTS) plan: [`voice-interaction.md`](.agents/voice-interaction.md)
 - Specs (`.agents/spec/`):
   - lua module spec: [lua-module-spec.md](.agents/spec/lua-module-spec.md)
   - claw skill spec: [claw-skill-spec.md](.agents/spec/claw-skill-spec.md)

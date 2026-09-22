@@ -25,7 +25,8 @@
 static const char *TAG = "lua_module_websocket";
 
 #define LUA_WS_MT "websocket.client"
-#define LUA_WS_URI_MAX 256
+/* iFlytek IAT auth query is long (base64 authorization + date + host). */
+#define LUA_WS_URI_MAX 768
 #define LUA_WS_HEADER_MAX 8
 #define LUA_WS_QUEUE_LEN 8
 #define LUA_WS_PAYLOAD_MAX (32 * 1024)
@@ -502,7 +503,8 @@ static int lua_ws_connect(lua_State *L)
     }
 
     config.uri = ws->uri;
-    config.buffer_size = 2048;
+    /* IAT/TTS JSON+base64 frames exceed 2KB. */
+    config.buffer_size = 4096;
     config.task_stack = 6144;
     config.task_prio = 5;
     config.network_timeout_ms = (uint32_t)ws->connect_timeout_ms;

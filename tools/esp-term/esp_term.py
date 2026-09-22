@@ -41,6 +41,10 @@ APP_VERSION = "1.1.0"
 # Keep RAM bounded: in-memory ring + matching Text widget cap
 MAX_LOG_LINES = 2000
 MAX_HIST = 50
+# UI flood control: max lines applied to Text per pump tick
+MAX_UI_BATCH = 250
+# Port-presence scan is expensive on Windows; don't do it every tick
+LINK_PORT_SCAN_S = 2.0
 
 # Terminal palette
 BG = "#0c0c0c"
@@ -123,6 +127,8 @@ class SerialTerminal:
         self._pump_id: str | None = None
         self._tick_id: str | None = None
         self._trim_at = MAX_LOG_LINES
+        self._last_port_scan = 0.0
+        self._last_port_ok = True
 
         self.port_var = tk.StringVar()
         cfg = self._ui_cfg
@@ -140,6 +146,7 @@ class SerialTerminal:
         self.rec_on_connect = tk.BooleanVar(value=bool(cfg.get("log_on_connect", True)))
         # SSCOM-style TX/RX options
         self.hex_display = tk.BooleanVar(value=bool(cfg.get("hex_display", False)))
+        self._hex_mode = bool(cfg.get("hex_display", False))  # thread-safe for reader
         self.hex_send = tk.BooleanVar(value=bool(cfg.get("hex_send", False)))
         self.timed_send = tk.BooleanVar(value=False)  # never auto-start
         self.timed_ms = tk.StringVar(value=str(cfg.get("timed_ms", "1000")))
@@ -474,7 +481,7 @@ class SerialTerminal:
         opt = tk.Frame(self.root, bg=BG2, pady=3)
         opt.pack(fill=tk.X, padx=1, pady=(2, 0))
         tk.Checkbutton(
-            opt, text="HEX显示", variable=self.hex_display, command=self._redraw,
+            opt, text="HEX显示", variable=self.hex_display, command=self._on_hex_display,
             bg=BG2, fg=DIM, selectcolor=BG, activebackground=BG2, font=("Consolas", 9),
         ).pack(side=tk.LEFT, padx=(8, 2))
         tk.Checkbutton(
@@ -533,6 +540,19 @@ class SerialTerminal:
         self.stats = tk.Label(sb, text="", bg=BG2, fg=DIM, font=("Consolas", 9))
         self.stats.pack(side=tk.RIGHT, padx=10)
         tk.Label(sb, text=f"{APP_NAME} {APP_VERSION}", bg=BG2, fg=DIM, font=("Consolas", 9)).pack(side=tk.LEFT, padx=10)
+
+    def _on_hex_display(self) -> None:
+        self._hex_mode = bool(self.hex_display.get())
+        # Defer full re-render so the checkbox click stays snappy
+        self.root.after_idle(self._redraw)
+
+    def _rx_text(self, raw: bytes) -> str:
+        return raw.hex(" ") if self._hex_mode else raw.decode("utf-8", errors="replace")
+
+    def _item_text(self, kind: str, text) -> str:
+        if kind == "rx" and isinstance(text, (bytes, bytearray)):
+            return self._rx_text(bytes(text))
+        return text if isinstance(text, str) else str(text)
 
     def _set_wrap(self) -> None:
         self.log.configure(wrap="word" if self.wrap.get() else "none")
@@ -673,24 +693,27 @@ class SerialTerminal:
         """Watchdog: USB unplug / port gone → drop to offline (SecureCRT-like)."""
         if not self.connected or self._link_lost:
             return
-        port = self._connected_port
         ser = self.ser
         if ser is None or not getattr(ser, "is_open", False):
             self._link_lost = True
             self.rx_q.put(("link", "port closed"))
             return
-        if port and not self._port_still_present(port):
-            self._link_lost = True
-            self.rx_q.put(("link", f"{port} disappeared"))
-            return
-        # Cheap read of line status; some drivers raise on unplug
+        # Cheap status first
         try:
-            if ser.in_waiting < 0:
-                self._link_lost = True
-                self.rx_q.put(("link", "port status error"))
+            _ = ser.in_waiting
         except Exception:  # noqa: BLE001
             self._link_lost = True
             self.rx_q.put(("link", "port error"))
+            return
+        # Expensive Windows port scan, rate-limited
+        now = time.monotonic()
+        if now - self._last_port_scan < LINK_PORT_SCAN_S:
+            return
+        self._last_port_scan = now
+        port = self._connected_port
+        if port and not self._port_still_present(port):
+            self._link_lost = True
+            self.rx_q.put(("link", f"{port} disappeared"))
 
     def _handle_link_lost(self, reason: str) -> None:
         if not self.connected:
@@ -945,7 +968,7 @@ class SerialTerminal:
                 pass
 
     def _reader(self) -> None:
-        """Read serial; treat \\r\\n, \\n, and lone \\r as line breaks."""
+        """Read serial; write session log off the UI thread; queue display lines."""
         buf = bytearray()
         while not self.stop_reader.is_set():
             ser = self.ser
@@ -964,7 +987,6 @@ class SerialTerminal:
             while True:
                 n = buf.find(b"\n")
                 r = buf.find(b"\r")
-                # Earliest line break
                 if n < 0 and r < 0:
                     break
                 if n < 0:
@@ -972,7 +994,6 @@ class SerialTerminal:
                 elif r < 0:
                     idx, skip = n, 1
                 else:
-                    # \r\n → one break
                     if r + 1 == n:
                         idx, skip = r, 2
                     elif n < r:
@@ -981,33 +1002,111 @@ class SerialTerminal:
                         idx, skip = r, 1
                 raw = bytes(buf[:idx])
                 del buf[: idx + skip]
+                # Disk log: decode now; UI: keep raw bytes for HEX toggle
+                if self._hex_mode:
+                    self._write_rec("rx", raw.hex(" "))
+                else:
+                    self._write_rec("rx", raw.decode("utf-8", errors="replace"))
                 self.rx_q.put(("rx", raw))
 
     def _pump(self) -> None:
+        """Apply at most MAX_UI_BATCH lines per tick (keeps UI responsive)."""
+        batch: list[tuple[str, str]] = []
+        link_msg = None
         try:
-            while True:
+            while len(batch) < MAX_UI_BATCH:
                 kind, text = self.rx_q.get_nowait()
                 if kind == "link":
-                    self._handle_link_lost(text)
-                    continue
+                    link_msg = text
+                    break
+                # rx is already a display string from the reader thread
                 if kind == "rx" and isinstance(text, (bytes, bytearray)):
                     raw = bytes(text)
-                    if self.hex_display.get():
-                        display = raw.hex(" ")
-                    else:
-                        display = raw.decode("utf-8", errors="replace")
-                    self._write_rec("rx", display)
-                    if self.paused:
-                        continue
-                    self._append("rx", display)
-                    continue
-                self._write_rec(kind, text)
-                if self.paused and kind == "rx":
-                    continue
-                self._append(kind, text)
+                    text = raw.hex(" ") if self.hex_display.get() else raw.decode(
+                        "utf-8", errors="replace"
+                    )
+                batch.append((kind, text))
         except queue.Empty:
             pass
-        self._pump_id = self.root.after(60, self._pump)
+
+        if link_msg is not None:
+            self._handle_link_lost(link_msg)
+
+        if batch:
+            self._apply_batch(batch)
+        # Drain rest quickly if queue is still full (next tick soon)
+        backlog = self.rx_q.qsize()
+        delay = 15 if backlog > MAX_UI_BATCH else 50
+        self._pump_id = self.root.after(delay, self._pump)
+
+    def _apply_batch(self, batch: list[tuple[str, str]]) -> None:
+        show_ts = self.show_ts.get()
+        q = self.filter_var.get().strip()
+        qlow = q.lower() if q else ""
+        hex_mode = self.hex_display.get()
+        lvl_all = self.lvl_all.get()
+        lvl_raw = self.lvl_raw.get()
+        lvl = {k: v.get() for k, v in self.lvl.items()}
+        paused = self.paused
+
+        inserted = 0
+        self.log.configure(state=tk.NORMAL)
+        for kind, text in batch:
+            if kind == "rx":
+                raw = bytes(text) if isinstance(text, (bytes, bytearray)) else text.encode("utf-8", errors="replace")
+                self._all.append(("rx", raw))
+                text = self._rx_text(raw)
+            else:
+                self._write_rec(kind, text)
+                self._all.append((kind, text))
+            if paused and kind == "rx":
+                continue
+            # filter
+            if q and qlow not in text.lower():
+                continue
+            if kind == "rx":
+                if not lvl_all:
+                    m = LEVEL_RE.match(text)
+                    lv = m.group(1) if m else None
+                    if lv and lv in lvl:
+                        if not lvl[lv]:
+                            continue
+                    elif not lvl_raw:
+                        continue
+            tag = kind
+            if kind == "rx":
+                m = LEVEL_RE.match(text)
+                if m and m.group(1) in lvl:
+                    tag = m.group(1)
+                else:
+                    tag = "raw"
+            if show_ts:
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                self.log.insert(tk.END, f"{ts}  ", "ts")
+            if q:
+                # only highlight when filter is short; high-rate path skips complex split
+                if len(text) < 400:
+                    low = text.lower()
+                    i = 0
+                    while True:
+                        j = low.find(qlow, i)
+                        if j < 0:
+                            self.log.insert(tk.END, text[i:], tag)
+                            break
+                        self.log.insert(tk.END, text[i:j], tag)
+                        self.log.insert(tk.END, text[j : j + len(q)], "hl")
+                        i = j + len(q)
+                else:
+                    self.log.insert(tk.END, text, tag)
+            else:
+                self.log.insert(tk.END, text, tag)
+            self.log.insert(tk.END, "\n")
+            inserted += 1
+        self.log.configure(state=tk.DISABLED)
+        if inserted:
+            self._trim_text_widget()
+            if self.autoscroll.get():
+                self.log.see(tk.END)
 
     def _tick(self) -> None:
         self._check_link()
@@ -1098,18 +1197,41 @@ class SerialTerminal:
             self.log.see(tk.END)
 
     def _redraw(self) -> None:
-        self.log.configure(state=tk.NORMAL, wrap="word" if self.wrap.get() else "none")
-        self.log.delete("1.0", tk.END)
-        for kind, text in self._all:
-            if self._ok(kind, text):
-                self._draw(kind, text)
-        self.log.configure(state=tk.DISABLED)
+        """Fast full re-render (used after filter / HEX / level changes)."""
+        wrap = "word" if self.wrap.get() else "none"
+        show_ts = self.show_ts.get()
+        q = self.filter_var.get().strip()
+        qlow = q.lower() if q else ""
+        lvl_all = self.lvl_all.get()
+        lvl_raw = self.lvl_raw.get()
+        lvl = {k: v.get() for k, v in self.lvl.items()}
 
-    def _clear(self) -> None:
-        self._all.clear()
-        self.log.configure(state=tk.NORMAL)
+        self.log.configure(state=tk.NORMAL, wrap=wrap)
         self.log.delete("1.0", tk.END)
+        # Avoid per-line see() during rebuild
+        for kind, payload in self._all:
+            text = self._item_text(kind, payload)
+            if q and qlow not in text.lower():
+                continue
+            if kind == "rx" and not lvl_all:
+                m = LEVEL_RE.match(text)
+                lv = m.group(1) if m else None
+                if lv and lv in lvl:
+                    if not lvl[lv]:
+                        continue
+                elif not lvl_raw:
+                    continue
+            tag = kind
+            if kind == "rx":
+                m = LEVEL_RE.match(text)
+                tag = m.group(1) if (m and m.group(1) in lvl) else "raw"
+            if show_ts:
+                self.log.insert(tk.END, f"{datetime.now().strftime('%H:%M:%S.%f')[:-3]}  ", "ts")
+            self.log.insert(tk.END, text, tag)
+            self.log.insert(tk.END, "\n")
         self.log.configure(state=tk.DISABLED)
+        if self.autoscroll.get():
+            self.log.see(tk.END)
 
     def _save(self) -> None:
         path = filedialog.asksaveasfilename(
@@ -1119,8 +1241,15 @@ class SerialTerminal:
         )
         if not path:
             return
-        Path(path).write_text("\n".join(t for _, t in self._all) + "\n", encoding="utf-8")
+        lines = [self._item_text(k, t) for k, t in self._all]
+        Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
         self._append("sys", f"— saved {len(self._all)} → {Path(path).name} —")
+
+    def _clear(self) -> None:
+        self._all.clear()
+        self.log.configure(state=tk.NORMAL)
+        self.log.delete("1.0", tk.END)
+        self.log.configure(state=tk.DISABLED)
 
     # ── send ─────────────────────────────────────────────────────────────
     def _eol(self) -> bytes:

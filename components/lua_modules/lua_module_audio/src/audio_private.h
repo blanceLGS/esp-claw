@@ -39,7 +39,7 @@
 #define TAG                           AUDIO_TAG
 #define AUDIO_CHUNK_BYTES             512
 #define AUDIO_DEFAULT_VOL             80
-#define AUDIO_INPUT_GAIN_DB_MAX       30.0f
+#define AUDIO_INPUT_GAIN_DB_MAX       37.5f
 #define AUDIO_DEVICE_INPUT_META       "lua_audio_input"
 #define AUDIO_DEVICE_OUTPUT_META      "lua_audio_output"
 #define AUDIO_PLAYER_META             "lua_audio_player"

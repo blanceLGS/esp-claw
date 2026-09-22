@@ -220,6 +220,55 @@ static int cmd_ask_once(int argc, char **argv)
     return rc;
 }
 
+static int cmd_voice(int argc, char **argv)
+{
+    app_claw_config_t config;
+    bool show_key = false;
+
+    if (argc >= 2 && strcmp(argv[1], "key") == 0) {
+        show_key = true;
+    } else if (argc >= 2 && strcmp(argv[1], "show") != 0) {
+        printf("Usage: voice [show|key]\n");
+        printf("  show - TTS/ASR status (key masked)\n");
+        printf("  key  - print full tts_api_key\n");
+        return 1;
+    }
+
+    if (app_claw_get_config(&config) != ESP_OK) {
+        printf("voice config not ready\n");
+        return 1;
+    }
+
+    printf("tts_base_url: %s\n", config.tts_base_url[0] ? config.tts_base_url : "(empty)");
+    printf("tts_model:    %s\n", config.tts_model[0] ? config.tts_model : "(empty)");
+    printf("tts_voice:    %s\n", config.tts_voice[0] ? config.tts_voice : "(empty)");
+    printf("tts_volume:   %s\n", config.tts_volume[0] ? config.tts_volume : "(empty)");
+    printf("asr_provider: %s\n", config.asr_provider[0] ? config.asr_provider : "(empty)");
+    printf("asr_endpoint: %s\n", config.asr_endpoint[0] ? config.asr_endpoint : "(empty)");
+    printf("asr_app_id:   %s\n", config.asr_app_id[0] ? "set" : "(empty)");
+    printf("asr_api_key:  %s\n", config.asr_api_key[0] ? "set" : "(empty)");
+    printf("asr_secret:   %s\n", config.asr_api_secret[0] ? "set" : "(empty)");
+    printf("wake_words:   %s\n", config.voice_wake_words[0] ? config.voice_wake_words : "(empty)");
+    printf("voice_enable: %s\n", config.voice_enable[0] ? config.voice_enable : "(empty)");
+
+    if (config.tts_api_key[0] == '\0') {
+        printf("tts_api_key:  (empty)\n");
+    } else if (show_key) {
+        printf("tts_api_key:  %s\n", config.tts_api_key);
+    } else {
+        size_t n = strlen(config.tts_api_key);
+        if (n <= 8) {
+            printf("tts_api_key:  ******** (len=%u)\n", (unsigned)n);
+        } else {
+            printf("tts_api_key:  %.4s…%.4s (len=%u)\n",
+                   config.tts_api_key,
+                   config.tts_api_key + n - 4,
+                   (unsigned)n);
+        }
+    }
+    return 0;
+}
+
 static int cmd_session(int argc, char **argv)
 {
     if (argc == 1) {
@@ -753,7 +802,7 @@ esp_err_t app_claw_cli_start(void)
 
     repl_config.prompt = "app> ";
     repl_config.task_stack_size = 10240;
-    repl_config.max_cmdline_length = 512;
+    repl_config.max_cmdline_length = 2048;
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 2, 0)
     ESP_ERROR_CHECK(esp_console_new_repl_stdio(&repl_config, &repl));
@@ -791,6 +840,15 @@ esp_err_t app_claw_cli_start(void)
             .func = cmd_ask_once,
         };
         ESP_ERROR_CHECK(esp_console_cmd_register(&ask_once_cmd));
+    }
+
+    {
+        esp_console_cmd_t voice_cmd = {
+            .command = "voice",
+            .help = "Show stored TTS/ASR config: voice [show|key]",
+            .func = cmd_voice,
+        };
+        ESP_ERROR_CHECK(esp_console_cmd_register(&voice_cmd));
     }
 
     {

@@ -5,7 +5,7 @@ import { createConfigTab } from '../state/configTab';
 import { TabShell } from '../components/layout/TabShell';
 import { PageHeader } from '../components/ui/PageHeader';
 import { CollapsibleConfigBlock, StaticConfigBlock } from '../components/ui/ConfigBlocks';
-import { TextInput } from '../components/ui/FormField';
+import { TextInput, SelectInput } from '../components/ui/FormField';
 import { SavePanel } from '../components/ui/SavePanel';
 import { Banner } from '../components/ui/Banner';
 import { Switch } from '../components/ui/Switch';
@@ -188,6 +188,19 @@ type LlmForm = {
   llm_supports_tools: boolean;
   llm_supports_vision: boolean;
   llm_image_remote_url_only: boolean;
+  asr_provider: string;
+  asr_api_key: string;
+  asr_api_secret: string;
+  asr_app_id: string;
+  asr_model: string;
+  asr_endpoint: string;
+  voice_wake_words: string;
+  voice_enable: string;
+  tts_api_key: string;
+  tts_base_url: string;
+  tts_model: string;
+  tts_voice: string;
+  tts_volume: string;
 };
 
 function isPositiveInteger(value: string): boolean {
@@ -226,7 +239,7 @@ function presetLabel(key: PresetKey): string {
 export const LlmPage: Component = () => {
   const tab = createConfigTab<LlmForm>({
     tab: 'llm',
-    groups: ['llm'],
+    groups: ['llm', 'voice'],
     toForm: (config: Partial<AppConfig>) => ({
       llm_api_key: config.llm_api_key ?? '',
       llm_model: config.llm_model ?? '',
@@ -240,6 +253,19 @@ export const LlmPage: Component = () => {
       llm_supports_tools: parseBool(config.llm_supports_tools),
       llm_supports_vision: parseBool(config.llm_supports_vision),
       llm_image_remote_url_only: parseBool(config.llm_image_remote_url_only),
+      asr_provider: config.asr_provider ?? '',
+      asr_api_key: config.asr_api_key ?? '',
+      asr_api_secret: config.asr_api_secret ?? '',
+      asr_app_id: config.asr_app_id ?? '',
+      asr_model: config.asr_model ?? '',
+      asr_endpoint: config.asr_endpoint ?? '',
+      voice_wake_words: config.voice_wake_words ?? '',
+      voice_enable: config.voice_enable ?? 'true',
+      tts_api_key: config.tts_api_key ?? '',
+      tts_base_url: config.tts_base_url ?? '',
+      tts_model: config.tts_model ?? '',
+      tts_voice: config.tts_voice ?? '',
+      tts_volume: config.tts_volume ?? '80',
     }),
     fromForm: (form) => ({
       llm_api_key: form.llm_api_key.trim(),
@@ -254,6 +280,19 @@ export const LlmPage: Component = () => {
       llm_supports_tools: String(form.llm_supports_tools),
       llm_supports_vision: String(form.llm_supports_vision),
       llm_image_remote_url_only: String(form.llm_image_remote_url_only),
+      asr_provider: form.asr_provider.trim(),
+      asr_api_key: form.asr_api_key.trim(),
+      asr_api_secret: form.asr_api_secret.trim(),
+      asr_app_id: form.asr_app_id.trim(),
+      asr_model: form.asr_model.trim(),
+      asr_endpoint: form.asr_endpoint.trim(),
+      voice_wake_words: form.voice_wake_words.trim(),
+      voice_enable: parseBool(form.voice_enable) ? 'true' : 'false',
+      tts_api_key: form.tts_api_key.trim(),
+      tts_base_url: form.tts_base_url.trim(),
+      tts_model: form.tts_model.trim(),
+      tts_voice: form.tts_voice.trim(),
+      tts_volume: form.tts_volume.trim(),
     }),
   });
   const [validationError, setValidationError] = createSignal<string | null>(null);
@@ -276,6 +315,19 @@ export const LlmPage: Component = () => {
     void tab.form.llm_supports_tools;
     void tab.form.llm_supports_vision;
     void tab.form.llm_image_remote_url_only;
+    void tab.form.asr_provider;
+    void tab.form.asr_api_key;
+    void tab.form.asr_api_secret;
+    void tab.form.asr_app_id;
+    void tab.form.asr_model;
+    void tab.form.asr_endpoint;
+    void tab.form.voice_wake_words;
+    void tab.form.voice_enable;
+    void tab.form.tts_api_key;
+    void tab.form.tts_base_url;
+    void tab.form.tts_model;
+    void tab.form.tts_voice;
+    void tab.form.tts_volume;
     setValidationError(null);
   });
 
@@ -474,6 +526,118 @@ export const LlmPage: Component = () => {
                 label={t('llmImageRemoteUrlOnly') as string}
               />
             </div>
+          </div>
+        </CollapsibleConfigBlock>
+        <CollapsibleConfigBlock title={t('voiceAsrSection') as string} defaultOpen={true}>
+          <div class="grid gap-3 sm:grid-cols-2 pt-2">
+            <SelectInput
+              label={t('voiceAsrProvider') as string}
+              value={tab.form.asr_provider}
+              onChange={(event) => tab.setForm('asr_provider', event.currentTarget.value)}
+            >
+              <option value="">{t('voiceAsrProviderNone') as string}</option>
+              <option value="siliconflow">{t('voiceAsrProviderSiliconFlow') as string}</option>
+              <option value="iflytek">{t('voiceAsrProviderIflytek') as string}</option>
+            </SelectInput>
+            <TextInput
+              label={t('voiceWakeWords') as string}
+              hint={t('voiceWakeWordsHint') as string}
+              value={tab.form.voice_wake_words}
+              onInput={(event) => tab.setForm('voice_wake_words', event.currentTarget.value)}
+            />
+            <div class="flex items-start">
+              <Switch
+                checked={parseBool(tab.form.voice_enable)}
+                onChange={(checked) => tab.setForm('voice_enable', checked ? 'true' : 'false')}
+                label={t('voiceEnable') as string}
+              />
+            </div>
+            <Show when={tab.form.asr_provider === 'siliconflow'}>
+              <TextInput
+                type="password"
+                label={t('voiceAsrApiKey') as string}
+                value={tab.form.asr_api_key}
+                onInput={(event) => tab.setForm('asr_api_key', event.currentTarget.value)}
+              />
+              <TextInput
+                label={t('voiceAsrModel') as string}
+                hint={t('voiceAsrModelSiliconFlowHint') as string}
+                placeholder="FunAudioLLM/SenseVoiceSmall"
+                value={tab.form.asr_model}
+                onInput={(event) => tab.setForm('asr_model', event.currentTarget.value)}
+              />
+              <TextInput
+                type="url"
+                full
+                label={t('voiceAsrEndpoint') as string}
+                hint={t('voiceAsrEndpointSfHint') as string}
+                placeholder="https://api.siliconflow.cn/v1"
+                value={tab.form.asr_endpoint}
+                onInput={(event) => tab.setForm('asr_endpoint', event.currentTarget.value)}
+              />
+            </Show>
+            <Show when={tab.form.asr_provider === 'iflytek'}>
+              <TextInput
+                label={t('voiceAsrAppId') as string}
+                value={tab.form.asr_app_id}
+                onInput={(event) => tab.setForm('asr_app_id', event.currentTarget.value)}
+              />
+              <TextInput
+                type="password"
+                label={t('voiceAsrApiKey') as string}
+                hint={t('voiceAsrIflytekKeyHint') as string}
+                value={tab.form.asr_api_key}
+                onInput={(event) => tab.setForm('asr_api_key', event.currentTarget.value)}
+              />
+              <TextInput
+                type="password"
+                full
+                label={t('voiceAsrApiSecret') as string}
+                value={tab.form.asr_api_secret}
+                onInput={(event) => tab.setForm('asr_api_secret', event.currentTarget.value)}
+              />
+              <TextInput
+                full
+                label={t('voiceAsrEndpoint') as string}
+                hint={t('voiceAsrIflytekEndpointHint') as string}
+                placeholder="wss://iat.xf-yun.com/v1"
+                value={tab.form.asr_endpoint}
+                onInput={(event) => tab.setForm('asr_endpoint', event.currentTarget.value)}
+              />
+            </Show>
+            <TextInput
+              type="password"
+              label={t('voiceTtsApiKey') as string}
+              value={tab.form.tts_api_key}
+              onInput={(event) => tab.setForm('tts_api_key', event.currentTarget.value)}
+            />
+            <TextInput
+              type="url"
+              label={t('voiceTtsBaseUrl') as string}
+              hint={t('voiceTtsBaseUrlHint') as string}
+              placeholder="https://api.siliconflow.cn/v1"
+              value={tab.form.tts_base_url}
+              onInput={(event) => tab.setForm('tts_base_url', event.currentTarget.value)}
+            />
+            <TextInput
+              label={t('voiceTtsModel') as string}
+              placeholder="FunAudioLLM/CosyVoice2-0.5B"
+              value={tab.form.tts_model}
+              onInput={(event) => tab.setForm('tts_model', event.currentTarget.value)}
+            />
+            <TextInput
+              label={t('voiceTtsVoice') as string}
+              placeholder="FunAudioLLM/CosyVoice2-0.5B:alex"
+              value={tab.form.tts_voice}
+              onInput={(event) => tab.setForm('tts_voice', event.currentTarget.value)}
+            />
+            <TextInput
+              label={t('voiceTtsVolume') as string}
+              hint={t('voiceTtsVolumeHint') as string}
+              placeholder="80"
+              value={tab.form.tts_volume}
+              onInput={(event) => tab.setForm('tts_volume', event.currentTarget.value)}
+            />
           </div>
         </CollapsibleConfigBlock>
       </div>

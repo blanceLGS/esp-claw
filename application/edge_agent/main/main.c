@@ -100,18 +100,90 @@ static esp_err_t main_load_config(app_config_t *config)
     return app_config_load(config);
 }
 
+static bool main_voice_enabled_value(const char *voice_enable)
+{
+    if (!voice_enable || !voice_enable[0]) {
+        return true;
+    }
+    return !(strcmp(voice_enable, "0") == 0 ||
+             strcmp(voice_enable, "false") == 0 ||
+             strcmp(voice_enable, "off") == 0 ||
+             strcmp(voice_enable, "no") == 0);
+}
+
+static void main_write_data_text(const char *rel_path, const char *text)
+{
+    char path[64];
+    FILE *fp = NULL;
+
+    if (claw_paths_join(CLAW_PATH_DATA, rel_path, path, sizeof(path)) != ESP_OK) {
+        ESP_LOGW(TAG, "voice sync path unavailable: %s", rel_path);
+        return;
+    }
+    fp = fopen(path, "w");
+    if (!fp) {
+        ESP_LOGW(TAG, "voice sync open failed: %s", path);
+        return;
+    }
+    fputs(text, fp);
+    fclose(fp);
+}
+
+/* Mirror web/NVS voice settings into DATA files keepalive/wake_listen read. */
+static void main_sync_voice_runtime_files(const app_config_t *old_cfg, const app_config_t *new_cfg)
+{
+    bool enabled = main_voice_enabled_value(new_cfg->voice_enable);
+    bool voice_changed = false;
+
+    if (old_cfg) {
+        if (strcmp(old_cfg->voice_enable, new_cfg->voice_enable) != 0 ||
+            strcmp(old_cfg->voice_wake_words, new_cfg->voice_wake_words) != 0 ||
+            strcmp(old_cfg->tts_volume, new_cfg->tts_volume) != 0 ||
+            strcmp(old_cfg->tts_api_key, new_cfg->tts_api_key) != 0 ||
+            strcmp(old_cfg->tts_voice, new_cfg->tts_voice) != 0 ||
+            strcmp(old_cfg->asr_provider, new_cfg->asr_provider) != 0 ||
+            strcmp(old_cfg->asr_api_key, new_cfg->asr_api_key) != 0 ||
+            strcmp(old_cfg->asr_endpoint, new_cfg->asr_endpoint) != 0) {
+            voice_changed = true;
+        }
+    } else {
+        voice_changed = true;
+    }
+
+    main_write_data_text("voice_enable", enabled ? "1" : "0");
+    if (new_cfg->tts_volume[0]) {
+        main_write_data_text("voice_tts_volume", new_cfg->tts_volume);
+    }
+    if (voice_changed) {
+        main_write_data_text("voice_wake.cmd", enabled ? "restart" : "stop");
+        ESP_LOGI(TAG, "voice runtime sync enable=%d cmd=%s",
+                 (int)enabled, enabled ? "restart" : "stop");
+    }
+}
+
 static esp_err_t main_save_config(const app_config_t *config)
 {
     esp_err_t err;
     app_claw_config_t *claw_config = NULL;
+    app_config_t *old_config = NULL;
 
     ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "config is NULL");
     ESP_RETURN_ON_ERROR(app_config_validate_wifi(config, NULL), TAG, "Invalid Wi-Fi config");
 
+    old_config = calloc(1, sizeof(*old_config));
+    if (old_config && app_config_load(old_config) != ESP_OK) {
+        free(old_config);
+        old_config = NULL;
+    }
+
     err = app_config_save(config);
     if (err != ESP_OK) {
+        free(old_config);
         return err;
     }
+
+    main_sync_voice_runtime_files(old_config, config);
+    free(old_config);
 
     claw_config = calloc(1, sizeof(*claw_config));
     if (!claw_config) {
@@ -145,6 +217,19 @@ static void main_copy_claw_to_app_config(const app_claw_config_t *src, app_confi
     strlcpy(dst->llm_image_remote_url_only,
             src->llm_image_remote_url_only,
             sizeof(dst->llm_image_remote_url_only));
+    strlcpy(dst->asr_provider, src->asr_provider, sizeof(dst->asr_provider));
+    strlcpy(dst->asr_api_key, src->asr_api_key, sizeof(dst->asr_api_key));
+    strlcpy(dst->asr_api_secret, src->asr_api_secret, sizeof(dst->asr_api_secret));
+    strlcpy(dst->asr_app_id, src->asr_app_id, sizeof(dst->asr_app_id));
+    strlcpy(dst->asr_model, src->asr_model, sizeof(dst->asr_model));
+    strlcpy(dst->asr_endpoint, src->asr_endpoint, sizeof(dst->asr_endpoint));
+    strlcpy(dst->voice_wake_words, src->voice_wake_words, sizeof(dst->voice_wake_words));
+    strlcpy(dst->voice_enable, src->voice_enable, sizeof(dst->voice_enable));
+    strlcpy(dst->tts_api_key, src->tts_api_key, sizeof(dst->tts_api_key));
+    strlcpy(dst->tts_base_url, src->tts_base_url, sizeof(dst->tts_base_url));
+    strlcpy(dst->tts_model, src->tts_model, sizeof(dst->tts_model));
+    strlcpy(dst->tts_voice, src->tts_voice, sizeof(dst->tts_voice));
+    strlcpy(dst->tts_volume, src->tts_volume, sizeof(dst->tts_volume));
 }
 
 static esp_err_t main_save_claw_config(const app_claw_config_t *config, void *user_ctx)
@@ -166,6 +251,9 @@ static esp_err_t main_save_claw_config(const app_claw_config_t *config, void *us
     }
     main_copy_claw_to_app_config(config, app_config);
     err = app_config_save(app_config);
+    if (err == ESP_OK) {
+        main_sync_voice_runtime_files(NULL, app_config);
+    }
     free(app_config);
     return err;
 }

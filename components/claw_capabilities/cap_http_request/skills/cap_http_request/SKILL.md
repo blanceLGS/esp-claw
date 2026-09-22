@@ -38,6 +38,7 @@ Use this skill when the task needs a direct HTTP or HTTPS request to a known end
   "timeout_ms": 15000,
   "max_body_bytes": 16384,
   "save_path": "/spiffs/download.bin",
+  "save_direct": false,
   "max_file_bytes": 1048576
 }
 ```

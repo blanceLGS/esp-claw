@@ -225,6 +225,12 @@ dependencies:
       - if: $CONFIG{APP_CLAW_LUA_MODULE_DELAY} == True
     path: ../../lua_modules/lua_module_delay
 
+  lua_module_crypto:
+    rules:
+      - if: $CONFIG{APP_CLAW_CAP_LUA} == True
+      - if: $CONFIG{APP_CLAW_LUA_MODULE_CRYPTO} == True
+    path: ../../lua_modules/lua_module_crypto
+
   lua_module_socket:
     rules:
       - if: $CONFIG{APP_CLAW_CAP_LUA} == True

@@ -1,5 +1,59 @@
 [
   {
+    "id": "voice_service_startup",
+    "description": "Phase-1: start resident voice wake service after boot via keepalive.",
+    "enabled": true,
+    "consume_on_match": false,
+    "fail_open": true,
+    "ack": "voice keepalive boot check queued",
+    "match": {
+      "source_cap": "app_claw",
+      "event_type": "startup",
+      "event_key": "boot_completed",
+      "content_type": "trigger"
+    },
+    "actions": [
+      {
+        "type": "run_script",
+        "fail_open": true,
+        "input": {
+          "async": true,
+          "path": "/system/skills/voice_service/scripts/voice_keepalive.lua",
+          "timeout_ms": 30000,
+          "args": {
+            "reason": "boot"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "voice_keepalive_check",
+    "description": "Phase-1: scheduler tick ensures voice_wake async job is running.",
+    "enabled": true,
+    "consume_on_match": false,
+    "fail_open": true,
+    "ack": "voice keepalive tick handled",
+    "match": {
+      "event_type": "schedule",
+      "event_key": "voice_keepalive"
+    },
+    "actions": [
+      {
+        "type": "run_script",
+        "fail_open": true,
+        "input": {
+          "async": true,
+          "path": "/system/skills/voice_service/scripts/voice_keepalive.lua",
+          "timeout_ms": 20000,
+          "args": {
+            "reason": "scheduler"
+          }
+        }
+      }
+    ]
+  },
+  {
     "id": "startup_run_led_strip_dim_white",
     "description": "Set LED strip to low-brightness white once the device finishes booting.",
     "enabled": false,
@@ -106,7 +160,7 @@
         "input": {
           "channel": "{{event.source_channel}}",
           "chat_id": "{{event.chat_id}}",
-          "message": "🦞 ESP-Claw is snapping on it..."
+          "message": "收到，正在思考…稍后文字回复，并尽量同步播报。"
         }
       }
     ]
@@ -192,6 +246,20 @@
           "channel": "{{event.source_channel}}",
           "chat_id": "{{event.chat_id}}",
           "message": "{{event.text}}"
+        }
+      },
+      {
+        "type": "run_script",
+        "fail_open": true,
+        "input": {
+          "async": true,
+          "path": "/system/skills/agent_then_tts/scripts/agent_then_tts.lua",
+          "exclusive": "tts",
+          "timeout_ms": 120000,
+          "args": {
+            "reply_text": "{{event.text}}",
+            "status": "{{event.payload.status}}"
+          }
         }
       }
     ]

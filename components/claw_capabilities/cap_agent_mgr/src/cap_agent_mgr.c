@@ -345,7 +345,105 @@ static esp_err_t cap_agent_mgr_delete_execute(const char *input_json,
     return ESP_OK;
 }
 
+/* Synchronous ask: submit root text and wait for final reply (CLI `ask` path).
+ * Callable from Lua / skills; not root-agent-only. */
+#define CAP_AGENT_ASK_SUBMIT_MS_DEFAULT 5000
+#define CAP_AGENT_ASK_RECV_MS_DEFAULT   120000
+#define CAP_AGENT_ASK_RECV_MS_MAX       180000
+
+static esp_err_t cap_agent_ask_execute(const char *input_json,
+                                       const claw_cap_call_context_t *ctx,
+                                       char *output,
+                                       size_t output_size)
+{
+    cJSON *root = NULL;
+    const char *text = NULL;
+    const char *session_id = NULL;
+    cJSON *timeout_item = NULL;
+    cJSON *submit_item = NULL;
+    uint32_t submit_timeout_ms = CAP_AGENT_ASK_SUBMIT_MS_DEFAULT;
+    uint32_t recv_timeout_ms = CAP_AGENT_ASK_RECV_MS_DEFAULT;
+    uint32_t request_id = 0;
+    claw_core_response_t response = {0};
+    esp_err_t err;
+
+    (void)ctx;
+
+    if (!output || output_size == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    output[0] = '\0';
+    if (!claw_agent_mgr_get_root_core()) {
+        snprintf(output, output_size, "Error: claw_core is not ready");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    root = cJSON_Parse(input_json ? input_json : "{}");
+    if (!cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        snprintf(output, output_size, "Error: invalid JSON input");
+        return ESP_ERR_INVALID_ARG;
+    }
+    text = cap_agent_mgr_get_string(root, "text");
+    session_id = cap_agent_mgr_get_string(root, "session_id");
+    timeout_item = cJSON_GetObjectItemCaseSensitive(root, "timeout_ms");
+    submit_item = cJSON_GetObjectItemCaseSensitive(root, "submit_timeout_ms");
+    if (!text || !text[0]) {
+        cJSON_Delete(root);
+        snprintf(output, output_size, "Error: missing text");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (cJSON_IsNumber(timeout_item) && timeout_item->valueint > 0) {
+        recv_timeout_ms = (uint32_t)timeout_item->valueint;
+        if (recv_timeout_ms > CAP_AGENT_ASK_RECV_MS_MAX) {
+            recv_timeout_ms = CAP_AGENT_ASK_RECV_MS_MAX;
+        }
+    }
+    if (cJSON_IsNumber(submit_item) && submit_item->valueint > 0) {
+        submit_timeout_ms = (uint32_t)submit_item->valueint;
+    }
+    cJSON_Delete(root);
+
+    err = claw_agent_mgr_submit_root_text(text,
+                                          (session_id && session_id[0]) ? session_id : NULL,
+                                          0,
+                                          submit_timeout_ms,
+                                          &request_id);
+    if (err != ESP_OK) {
+        snprintf(output, output_size, "Error: submit failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = claw_agent_mgr_receive_root_for(request_id, &response, recv_timeout_ms);
+    if (err != ESP_OK) {
+        snprintf(output, output_size, "Error: receive failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    if (response.status == CLAW_CORE_RESPONSE_STATUS_OK && response.text && response.text[0]) {
+        snprintf(output, output_size, "%s", response.text);
+        claw_core_response_free(&response);
+        return ESP_OK;
+    }
+
+    snprintf(output, output_size, "Error: %s",
+             response.error_message && response.error_message[0] ?
+             response.error_message : "agent returned empty reply");
+    claw_core_response_free(&response);
+    return ESP_FAIL;
+}
+
 static const claw_cap_descriptor_t s_agent_mgr_caps[] = {
+    {
+        .id = "agent_ask",
+        .name = "agent_ask",
+        .family = "agent_mgr",
+        .description = "Synchronously ask the root agent for a text reply. Submit text and wait until the agent finishes or timeout.",
+        .kind = CLAW_CAP_KIND_CALLABLE,
+        .cap_flags = CLAW_CAP_FLAG_CALLABLE_BY_LLM,
+        .input_schema_json = "{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},\"session_id\":{\"type\":\"string\"},\"timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":180000},\"submit_timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":60000}},\"required\":[\"text\"]}",
+        .execute = cap_agent_ask_execute,
+    },
     {
         .id = "spawn_agent",
         .name = "spawn_agent",
