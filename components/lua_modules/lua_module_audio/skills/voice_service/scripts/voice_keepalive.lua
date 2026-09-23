@@ -144,14 +144,14 @@ local function start_voice_job(extra)
         exit_on_wake = false,
         use_local_vad = true,
         followup_ms = 20000,
-        vad_threshold = 1200,
-        local_hold_ms = 200,
+        -- Match voice_service.lua: reject ambient chatter before cloud IAT.
+        vad_threshold = 2000,
+        local_hold_ms = 350,
         iat_min_peak = 2500,
         wake_ack = true,
         empty_retry = true,
         wake_record_ms = 4500,
         cmd_record_ms = 7000,
-        loose_command = true,
     }
     local vol = tonumber(read_data_text("voice_tts_volume") or "")
     if vol then
@@ -162,7 +162,7 @@ local function start_voice_job(extra)
     end
     for _, k in ipairs({
         "wake_only", "exit_on_wake", "use_local_vad",
-        "followup_ms", "vad_threshold", "wake_record_ms", "cmd_record_ms",
+        "followup_ms", "vad_threshold", "local_hold_ms", "wake_record_ms", "cmd_record_ms",
         "volume", "tts_volume",
     }) do
         if a[k] ~= nil then start_args[k] = a[k] end

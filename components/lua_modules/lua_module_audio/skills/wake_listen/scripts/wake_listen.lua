@@ -332,6 +332,9 @@ local followup_until = 0
 local wake_ack_on = true
 local tts_volume_on = nil
 local handle_local_device
+-- Half-duplex: ignore VAD while TTS speaker is still ringing (echo).
+local echo_guard_until = 0
+local echo_guard_ms = 500
 
 local LIVE_INFO_KEYS = {
     "天气", "新闻", "气温", "温度", "实时",
@@ -501,12 +504,34 @@ local function resolve_weather_city()
     return "北京", WEATHER_CITY["北京"].lat, WEATHER_CITY["北京"].lon
 end
 
+local function arm_echo_guard()
+    local ms = tonumber(echo_guard_ms) or 500
+    if ms < 100 then ms = 100 end
+    if ms > 3000 then ms = 3000 end
+    echo_guard_until = system.millis() + ms
+end
+
+local function echo_guard_active()
+    return system.millis() < echo_guard_until
+end
+
+local function wait_echo_guard()
+    local step = require("delay")
+    while echo_guard_active() do
+        pcall(function() step.delay_ms(30) end)
+    end
+end
+
 local function speak_text(msg, volume)
     if type(msg) ~= "string" or msg == "" then
         return false
     end
+    -- Half-duplex: TTS owns the speaker; do not listen while it plays.
+    arm_echo_guard()
     _G.args = { reply_text = msg, tts_volume = volume or tts_volume_on }
     local ok, err = pcall(dofile, TTS_DIR .. "/agent_then_tts.lua")
+    -- Ring-out after play (codec close + room).
+    arm_echo_guard()
     if not ok then
         logf("[wake_listen] tts failed: %s", tostring(err))
         return false
@@ -767,6 +792,9 @@ end
 -- ── Local energy VAD (audio.analyzer) ─────────────────────────────────────
 
 local function open_vad(volume)
+    if echo_guard_active() then
+        wait_echo_guard()
+    end
     local ok_audio, audio = pcall(require, "audio")
     local ok_bm, bm = pcall(require, "board_manager")
     if not ok_audio or not ok_bm then
@@ -806,6 +834,10 @@ end
 
 local function poll_speech(vad, threshold, check_ms)
     if not vad then return false, 0, 0, "no_vad" end
+    if echo_guard_active() then
+        vad.hits = 0
+        return false, 0, 0, "echo"
+    end
     local ok, level = pcall(function()
         return vad.analyzer:read_level({ duration_ms = check_ms })
     end)
@@ -825,11 +857,16 @@ local function poll_speech(vad, threshold, check_ms)
     end
     -- Local speech: energy above threshold AND sustained consecutive polls.
     local loud = (peak >= threshold) and (rms >= math.floor(threshold / 3))
+    -- soft_hit is for quiet lead-in only; ambient chatter stays "maybe".
+    local soft = peak >= math.floor(threshold * 0.75)
     if loud then
         vad.hits = (vad.hits or 0) + 1
-        -- 2 hits (~160ms): fire sooner so the tail of the utterance is captured.
+        return true, rms, peak, "hit"
+    end
+    if soft then
+        vad.hits = (vad.hits or 0) + 1
         if vad.hits >= 2 then
-            return true, rms, peak, "hit"
+            return true, rms, peak, "soft_hit"
         end
         return false, rms, peak, "maybe"
     end
@@ -860,6 +897,9 @@ local function run_asr(duration_ms, volume, opts)
         min_peak = opts.min_peak or 0,
         min_makeup_peak = opts.min_makeup_peak,
         local_only = opts.local_only == true,
+        -- Real-time: 400ms slices; cloud opens only after peak>=min_peak.
+        chunk_ms = opts.chunk_ms or 400,
+        silence_end_ms = opts.silence_end_ms or 1000,
     }
     -- Network blips must not kill the resident service.
     local ok, err = pcall(dofile, IAT_DIR .. "/asr_iat_file.lua")
@@ -975,6 +1015,7 @@ handle_local_device = function(text)
 
     local new_vol = nil
     local msg = nil
+    -- Volume verbs must be explicit; bare "大声"/"N%" in TV speech must NOT count.
     if text:find("静音", 1, true) and not text:find("取消", 1, true) then
         new_vol = 0
         msg = "好的，已静音"
@@ -984,7 +1025,8 @@ handle_local_device = function(text)
         if new_vol < 40 then new_vol = 80 end
         msg = string.format("好的，音量已恢复到百分之%d", new_vol)
     end
-    local pct = text:match("音量调到%s*(%d+)") or text:match("(%d+)%s*%%")
+    local pct = text:match("音量调到%s*(%d+)") or text:match("音量设为%s*(%d+)")
+        or (text:find("音量", 1, true) and text:match("(%d+)%s*%%"))
     if not new_vol and pct then
         new_vol = tonumber(pct)
         if new_vol then
@@ -993,10 +1035,16 @@ handle_local_device = function(text)
             msg = string.format("好的，音量已调到百分之%d", new_vol)
         end
     end
-    if not new_vol and (text:find("大声", 1, true) or text:find("音量大", 1, true)) then
+    local louder = text:find("大声点", 1, true) or text:find("大点声", 1, true)
+        or text:find("大声一些", 1, true) or text:find("音量大", 1, true)
+        or text:find("说大声", 1, true)
+    local softer = text:find("小声点", 1, true) or text:find("小点声", 1, true)
+        or text:find("小声一些", 1, true) or text:find("音量小", 1, true)
+        or text:find("说小声", 1, true)
+    if not new_vol and louder then
         new_vol = math.min(100, base + 15)
         msg = string.format("好的，音量已调到百分之%d", new_vol)
-    elseif not new_vol and (text:find("小声", 1, true) or text:find("音量小", 1, true)) then
+    elseif not new_vol and softer then
         new_vol = math.max(10, base - 15)
         msg = string.format("好的，音量已调到百分之%d", new_vol)
     end
@@ -1017,43 +1065,59 @@ end
 local function is_command_like(text)
     if type(text) ~= "string" or text == "" then return false end
     -- Do NOT byte-class-strip CJK punctuation: Lua patterns are byte-based and
-    -- will corrupt UTF-8 (e.g. 点/音 contain 0x80/0x9F). Match on raw text.
+    -- will corrupt UTF-8. Match on raw text.
     local short_keys = {
-        "音量", "大声", "小声", "静音", "几点", "几号", "日期", "时间",
+        "音量", "大声点", "小声点", "大点声", "小点声", "静音",
+        "几点", "几号", "日期", "时间",
         "天气", "气温", "温度", "新闻", "查询", "查下", "帮我",
         "关闭语音", "打开语音", "暂停语音", "停止监听", "开始监听",
     }
     for i = 1, #short_keys do
         if text:find(short_keys[i], 1, true) then return true end
     end
+    -- Loose weather needs a real question, not TV noise like "1今天天气".
+    if text:find("天气", 1, true) or text:find("气温", 1, true) then
+        if text:find("怎么样", 1, true) or text:find("如何", 1, true)
+                or text:find("查", 1, true) or text:find("多少", 1, true)
+                or text:find("今天", 1, true) or text:find("明天", 1, true) then
+            return true
+        end
+    end
     local keys = {
-        "怎么样", "什么", "打开", "播放", "翻译", "提醒", "定时",
-        "今日", "今天", "实时",
+        "什么", "打开", "播放", "翻译", "提醒", "定时", "实时",
     }
     for i = 1, #keys do
-        if text:find(keys[i], 1, true) then return true end
+        if text:find(keys[i], 1, true) and utf8_char_len(text) >= 4 then
+            return true
+        end
     end
     return false
 end
 
-local function handle_wake_text(heard, wake_words, wake_only, agent_timeout, tts_volume, exit_on_wake, followup_ms, loose_command)
+-- Local verbs safe to run without wake word (high precision).
+local function is_safe_local_without_wake(text)
+    if type(text) ~= "string" then return false end
+    local safe = {
+        "关闭语音", "打开语音", "暂停语音", "开启语音", "恢复语音",
+        "停止监听", "开始监听", "关闭监听",
+        "静音", "取消静音",
+        "音量", "大声点", "小声点", "大点声", "小点声",
+    }
+    for i = 1, #safe do
+        if text:find(safe[i], 1, true) then return true end
+    end
+    return false
+end
+
+local function handle_wake_text(heard, wake_words, wake_only, agent_timeout, tts_volume, exit_on_wake, followup_ms)
     local wake_word = match_wake_word(heard, wake_words)
     if not wake_word then
-        -- Device verbs work without wake word (小智-style).
-        if handle_local_device and handle_local_device(heard) then
+        -- Without wake word: only high-precision local verbs (volume/service).
+        -- Never enter Agent on ambient speech (loose-wake false triggers).
+        if handle_local_device and is_safe_local_without_wake(heard)
+                and handle_local_device(heard) then
             logf("[wake_listen] loose local device: %q", heard)
             return true, "local_device"
-        end
-        -- VAD often catches the tail of "小Q查新闻"; wake word already missed.
-        if loose_command and is_command_like(heard) then
-            logf("[wake_listen] loose-wake command-like: %q", heard)
-            if not wake_only then
-                if agent_and_tts(heard, agent_timeout, tts_volume) then
-                    followup_until = system.millis() + (followup_ms or 0)
-                    return true, followup_ms > 0 and "followup" or "handled"
-                end
-            end
-            return true, "handled"
         end
         logf("[wake_listen] no wake word in: %s", tostring(heard))
         return false, nil
@@ -1062,13 +1126,10 @@ local function handle_wake_text(heard, wake_words, wake_only, agent_timeout, tts
     if exit_on_wake then
         return true, "exit"
     end
-    -- Always ack on wake so user knows mic is in command/response path.
-    if wake_ack_on then
-        speak_wake_ack(tts_volume_on)
-    end
     local ok_cmd, payload = is_valid_command(heard, wake_words)
     if ok_cmd and payload and payload ~= "" and not is_wake_like(payload, wake_words) then
         logf("[wake_listen] command in same utterance: %s", payload)
+        -- Same-utterance command: skip "我在" so the answer is not delayed.
         if handle_local_device and handle_local_device(payload) then
             return true, "local_device"
         end
@@ -1081,6 +1142,10 @@ local function handle_wake_text(heard, wake_words, wake_only, agent_timeout, tts
             logf("[wake_listen] wake_only=true, skip agent")
         end
         return true, "handled"
+    end
+    -- Wake-only: short ack so user knows to speak the command.
+    if wake_ack_on then
+        speak_wake_ack(tts_volume_on)
     end
     if ok_cmd == false then
         logf("[wake_listen] same-utterance command rejected (%s), enter command mode", tostring(payload))
@@ -1108,10 +1173,10 @@ local function run()
     logf("[wake_listen] wake configured: %s", table.concat(configured, ", "))
     logf("[wake_listen] wake match set : %s", table.concat(wake_words, ", "))
 
-    local vad_threshold = int_arg("vad_threshold", 1600, 200, 20000)
+    local vad_threshold = int_arg("vad_threshold", 2000, 200, 20000)
     local vad_check_ms = int_arg("vad_check_ms", 80, 20, 500)
     -- Local energy must stay "speech-like" this long before any cloud IAT call.
-    local local_hold_ms = int_arg("local_hold_ms", 240, 80, 2000)
+    local local_hold_ms = int_arg("local_hold_ms", 350, 80, 2000)
     -- Recorder peak below this never opens IAT (local-only reject).
     local iat_min_peak = int_arg("iat_min_peak", 2500, 500, 25000)
     local session_ms = int_arg("vad_wait_ms", 0, 0, 600000)
@@ -1139,12 +1204,13 @@ local function run()
     local wake_ack = bool_arg("wake_ack", true)
     wake_ack_on = wake_ack
     tts_volume_on = tts_volume
-    local loose_command = bool_arg("loose_command", true)
+    echo_guard_ms = int_arg("echo_guard_ms", 500, 100, 3000)
+    local rollover_ms = int_arg("rollover_ms", 60000, 10000, 600000)
 
     local function call_handle(heard)
         return handle_wake_text(
             heard, wake_words, wake_only, agent_timeout, tts_volume,
-            exit_on_wake, followup_ms, loose_command)
+            exit_on_wake, followup_ms)
     end
     local cmd_pre_roll = int_arg("cmd_pre_roll_ms", 200, 0, 2000)
     local empty_retry = bool_arg("empty_retry", true)
@@ -1169,9 +1235,9 @@ local function run()
     logf("[wake_listen] session_ms=%d listen_window_ms=%d", session_ms, listen_window_ms)
     logf("[wake_listen] wake_record_ms=%d cmd_record_ms=%d wake_only=%s exit_on_wake=%s use_local_vad=%s",
          wake_record_ms, cmd_record_ms, tostring(wake_only), tostring(exit_on_wake), tostring(use_local_vad))
-    logf("[wake_listen] max_iterations=%s volume=%d tts_volume=%s followup_ms=%d log=%s",
+    logf("[wake_listen] max_iterations=%s volume=%d tts_volume=%s followup_ms=%d echo_guard=%dms rollover=%dms log=%s",
          max_iterations == 0 and "infinite" or tostring(max_iterations), volume,
-         tostring(tts_volume_on), followup_ms, LOG_PATH)
+         tostring(tts_volume_on), followup_ms, echo_guard_ms, rollover_ms, LOG_PATH)
     logf("[wake_listen] *** SPEAK 小依 NEAR MIC after SPEAK_NOW / VAD poll ***")
     if followup_ms > 0 then
         logf("[wake_listen] after reply you have %ds to speak follow-up WITHOUT wake word", followup_ms // 1000)
@@ -1196,6 +1262,8 @@ local function run()
     local command_retry = false
     local wake_asr_retried = false
     local asr_quiet_streak = 0
+    local last_beat = t0
+    local last_heartbeat = t0
 
     if use_local_vad and not asr_peak_mode then
         vad = open_vad(volume)
@@ -1243,7 +1311,13 @@ local function run()
                 while system.millis() < poll_until do
                     n = n + 1
                     local speech, rms, vpeak, tag = poll_speech(vad, vad_threshold, vad_check_ms)
-                    if tag == "hit" or speech then
+                    if tag == "hit" or tag == "soft_hit" then
+                        -- Record immediately: extra hold delay clips the wake word.
+                        logf("[wake_listen] VAD %s rms=%d peak=%d -> record now",
+                             tag, rms, vpeak)
+                        got_speech = true
+                        break
+                    elseif speech then
                         if not hold_t0 then
                             hold_t0 = system.millis()
                         end
@@ -1315,7 +1389,7 @@ local function run()
             logf("[wake_listen] ASR clip for wake check...")
             heard, peak, skipped = run_asr(wake_record_ms, volume, {
                 min_peak = iat_min_peak,
-                -- VAD already fired on speech; record immediately (no delay).
+                -- VAD already fired; open recorder ASAP (pre_roll_ms is unused delay).
                 pre_roll_ms = 0,
                 speak_prompt = false,
                 timeout_ms = 25000,
@@ -1357,6 +1431,7 @@ local function run()
                         command_retry = false
                         -- handle_wake_text already played "我在" on wake; do not speak twice.
                         logf("[wake_listen] wake -> command (wake_ack=%s, ack already played)", tostring(wake_ack))
+                        wait_echo_guard()
                         logf("[wake_listen] command window open — speak now")
                     elseif action == "followup" then
                         state = "followup"
@@ -1453,7 +1528,9 @@ local function run()
                          fpeak, tostring(fskip), tostring(ftext))
                 end
                 if type(ftext) == "string" and ftext ~= "" and not fskip then
-                    if match_wake_word(ftext, wake_words) or (loose_command and is_command_like(ftext)) then
+                    -- Follow-up may omit wake word (post-reply window), but only a real
+                    -- wake word re-enters handle_wake_text; otherwise treat as command.
+                    if match_wake_word(ftext, wake_words) then
                         logf("[wake_listen] followup text treated as turn: %q", ftext)
                         local ok_wake, action = call_handle(ftext)
                         if ok_wake and action == "exit" then
@@ -1490,6 +1567,24 @@ local function run()
         end
 
         ::continue::
+        -- Always-on polish: 60s heartbeat + clock refresh for IAT HMAC.
+        local now_ms = system.millis()
+        if (now_ms - last_beat) >= rollover_ms then
+            last_beat = now_ms
+            -- Refresh SNTP periodically so HMAC does not drift past ±300s.
+            if (now_ms - last_heartbeat) >= (10 * rollover_ms) then
+                last_heartbeat = now_ms
+                time_synced = false
+                pcall(function()
+                    capability.call("get_current_time", { force = true }, { source_cap = "wake_listen" })
+                end)
+                time_synced = true
+                logf("[wake_listen] rollover heartbeat elapsed=%dms state=%s woke=%d",
+                     now_ms - t0, state, woke_count)
+            else
+                logf("[wake_listen] alive state=%s echo_guard=%s", state, tostring(echo_guard_active()))
+            end
+        end
         -- Always restore analyzer VAD when idle-listening after a turn.
         if state == "listening" and use_local_vad and (not vad) then
             vad = open_vad(volume)

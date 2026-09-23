@@ -13,8 +13,9 @@ args = {
     use_local_vad = true,
     followup_ms = 20000,
     -- Local-first: stricter energy before any iFlytek IAT call.
-    vad_threshold = 1200,
-    local_hold_ms = 200,
+    -- 2000/350: ambient speech peaks 1200–1800 stay out of ASR (2026-09-22 log).
+    vad_threshold = 2000,
+    local_hold_ms = 350,
     iat_min_peak = 2500,
     wake_ack = true,
     empty_retry = true,

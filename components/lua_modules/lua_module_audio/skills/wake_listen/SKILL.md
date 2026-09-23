@@ -33,6 +33,7 @@ audio.analyzer 本地能量轮询 (vad_check_ms)
   → peak < vad_threshold 则跳过云端 (VAD_SKIP)
   → 否则送 iFlytek IAT v2
   → 匹配唤醒词 (voice_wake_words CSV，默认 小依 + 常见误识别别名)
+  → 无唤醒词：仅高精度本地动词（音量/静音/开关语音），不进 Agent
   → 同一句含命令 → agent_ask → agent_then_tts
   → 只有唤醒词 → 命令模式，录 cmd_record_ms
   → 回到 VAD 监听
@@ -42,10 +43,12 @@ audio.analyzer 本地能量轮询 (vad_check_ms)
 
 | 参数 | 说明 | 默认 |
 |---|---|---|
-| `vad_threshold` | 本地能量峰值阈值（也作 IAT min_peak） | `1400` |
+| `vad_threshold` | 本地能量峰值阈值 | `2000` |
+| `local_hold_ms` | 能量需持续多久才算人声 | `350` |
+| `iat_min_peak` | 录音 peak 低于此不连云端 | `2500` |
 | `vad_check_ms` | VAD 轮询间隔 | `80` |
 | `vad_wait_ms` | 单次 VAD 等待上限（0=30s 轮询后重试） | `0` |
-| `wake_record_ms` | 唤醒词识别录音时长 | `3500` |
+| `wake_record_ms` | 唤醒词识别录音时长 | `4500` |
 | `cmd_record_ms` | 命令录音时长 | `6000` |
 | `volume` | 麦克风音量 0–100 | `100` |
 | `use_local_vad` | 是否启用 analyzer 本地 VAD | `true` |
@@ -71,8 +74,9 @@ audio.analyzer 本地能量轮询 (vad_check_ms)
 | 场景 | 典型 peak |
 |---|---|
 | 安静底噪 | 800–1000 |
+| 环境闲聊/电视 | 1200–1800 |
 | 正常人声（靠近麦） | 2000+ |
-| `vad_threshold` 默认 | **1400**（底噪与人声之间） |
+| `vad_threshold` 默认 | **2000**（压掉闲聊，保留近讲人声） |
 
 若环境噪，调高 `vad_threshold`；若说话识别不到，调低或靠近麦克风。
 
