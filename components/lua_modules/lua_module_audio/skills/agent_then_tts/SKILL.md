@@ -45,7 +45,7 @@
 
 1. 读 `reply_text`（无则报错）  
 2. §7.6 分句截短  
-3. **流式（默认）**：后台 `POST`（body `stream:true`，`save_direct`）写 `/ramfs/tts_live.mp3`；文件 ≥ `tts_min_play_bytes` 即开播，下载并行  
+3. **流式（默认）**：后台 `POST`（body `stream:true`，`save_direct`）写 `/ramfs/tts_live.mp3`；≥ `tts_min_play_bytes` 开播；EOF 后若仍在下载则**帧对齐续播尾段**（真正边下边播）  
 4. **非流式**（`tts_stream=false`）：整包下到 `{DATA}/voice/tts.mp3` 再播  
 5. `audio.player` 阻塞播放  
 

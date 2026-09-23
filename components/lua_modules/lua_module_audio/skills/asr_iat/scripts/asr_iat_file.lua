@@ -1,5 +1,8 @@
--- B': iFlytek Spark IAT file ASR (16kHz mono WAV/raw PCM -> final text).
--- Does not capture mic; caller supplies a file path.
+-- B': iFlytek ASR file/stream client.
+-- Engines:
+--   iat  = 语音听写流式  wss://iat-api.xfyun.cn/v2/iat  common/business/data
+--   slm  = 中英识别大模型 wss://iat.xf-yun.com/v1       header/parameter/payload
+-- Does not capture mic in file mode; caller may pass stream=true for recorder.
 
 local capability = require("capability")
 local crypto = require("crypto")
@@ -10,9 +13,9 @@ local websocket = require("websocket")
 
 local a = type(args) == "table" and args or {}
 
--- iFlytek IAT v2 voicedictation (zh_cn, domain=iat)
--- Official endpoint for 语音听写 — not the old Spark LLM wss://iat.xf-yun.com/v1
-local DEFAULT_ENDPOINT = "wss://iat-api.xfyun.cn/v2/iat"
+local DEFAULT_ENDPOINT_IAT = "wss://iat-api.xfyun.cn/v2/iat"
+local DEFAULT_ENDPOINT_SLM = "wss://iat.xf-yun.com/v1"
+local DEFAULT_ENDPOINT = DEFAULT_ENDPOINT_IAT
 local DEFAULT_FRAME_MS = 40
 local DEFAULT_TIMEOUT_MS = 30000
 local SAMPLE_RATE = 16000
@@ -46,12 +49,28 @@ local function nonempty(s)
     return nil
 end
 
--- IAT only speaks WebSocket. Web config may hold an HTTPS console URL like
--- https://iat-api.xfyun.cn/v1; normalise it to the real WSS endpoint before
--- signing and connecting, otherwise the HMAC host and the socket host diverge
--- and iFlytek returns 403 "Sec-WebSocket-Accept not found".
-local function normalize_asr_endpoint(ep)
-    local fallback = DEFAULT_ENDPOINT
+-- IAT only speaks WebSocket. Web config may hold an HTTPS console URL; normalise
+-- to the real WSS endpoint before signing (HMAC host must match socket host).
+local function resolve_engine(provider, explicit)
+    local eng = explicit or provider or ""
+    eng = tostring(eng):lower()
+    if eng == "slm" or eng == "iflytek_bigmodel" or eng == "bigmodel" or eng == "zh_iat" then
+        return "slm"
+    end
+    return "iat"
+end
+
+local function normalize_asr_endpoint(ep, engine)
+    if engine == "slm" then
+        if type(ep) == "string" and ep ~= "" and ep:match("^wss://") and ep:match("iat%.xf%-yun%.com") then
+            return DEFAULT_ENDPOINT_SLM
+        end
+        if type(ep) == "string" and ep ~= "" and ep:match("^wss://") then
+            return ep
+        end
+        return DEFAULT_ENDPOINT_SLM
+    end
+    local fallback = DEFAULT_ENDPOINT_IAT
     if type(ep) ~= "string" or ep == "" then
         return fallback
     end
@@ -62,7 +81,7 @@ local function normalize_asr_endpoint(ep)
     if ep:match("^wss://ws%-api%.xfyun%.cn/v2/iat") then
         return ep
     end
-    -- Legacy/wrong endpoints -> rewrite to official v2
+    -- SLM / legacy console URLs -> rewrite to official v2 for engine=iat
     if ep:match("^https?://iat%-api%.xfyun%.cn") then
         return fallback
     end
@@ -225,14 +244,49 @@ local function build_auth_url(endpoint, app_id, api_key, api_secret)
     return url, nil, date, host
 end
 
-local function send_frame(ws, status, audio_b64, app_id, seq)
-    -- iFlytek IAT v2 WebSocket protocol (official format):
-    --   common.app_id + business (first frame only) + data (every frame)
-    --   data.status: 0=first, 1=middle, 2=last
+local function send_frame(ws, status, audio_b64, app_id, seq, opts)
+    -- status: 0=first, 1=middle, 2=last
+    opts = opts or {}
+    local engine = opts.engine or "iat"
     seq = seq or 1
     local audio = audio_b64 or ""
     local body
-    if status == 0 then
+    if engine == "slm" then
+        -- 中英识别大模型: header / parameter / payload (NOT common/business/data)
+        local domain = opts.domain or "slm"
+        if status == 0 then
+            local dwa = opts.dwa or ""
+            local dhw = opts.dhw or ""
+            local extra = ""
+            if dwa ~= "" then
+                extra = extra .. string.format(',"dwa":"%s"', dwa)
+            end
+            if dhw ~= "" then
+                -- session hotwords must be dhw=utf-8;词1|词2
+                local words = dhw:gsub("%s+", "")
+                if not words:find("^dhw=") then
+                    words = "dhw=utf-8;" .. (words:gsub("[,，]", "|"))
+                end
+                extra = extra .. string.format(',"dhw":"%s"', words)
+            end
+            body = string.format(
+                '{"header":{"app_id":"%s"%s,"status":0},"parameter":{"iat":{"domain":"%s","language":"zh_cn","accent":"mandarin","eos":6000%s,"result":{"encoding":"utf8","compress":"raw","format":"json"}}},"payload":{"audio":{"encoding":"raw","sample_rate":16000,"channels":1,"bit_depth":16,"seq":%d,"status":0,"audio":"%s"}}}',
+                app_id,
+                (opts.res_id and opts.res_id ~= "") and string.format(',"res_id":"%s"', opts.res_id) or "",
+                domain,
+                extra,
+                seq, audio)
+            print("[asr_iat] slm first_frame_head=" .. body:sub(1, 240))
+        elseif status == 2 then
+            body = string.format(
+                '{"header":{"app_id":"%s","status":2},"payload":{"audio":{"encoding":"raw","sample_rate":16000,"channels":1,"bit_depth":16,"seq":%d,"status":2,"audio":""}}}',
+                app_id, seq)
+        else
+            body = string.format(
+                '{"header":{"app_id":"%s","status":1},"payload":{"audio":{"encoding":"raw","sample_rate":16000,"channels":1,"bit_depth":16,"seq":%d,"status":1,"audio":"%s"}}}',
+                app_id, seq, audio)
+        end
+    elseif status == 0 then
         body = string.format(
             '{"common":{"app_id":"%s"},"business":{"language":"zh_cn","domain":"iat","accent":"mandarin","vad_eos":2000},"data":{"status":0,"format":"audio/L16;rate=16000","encoding":"raw","audio":"%s"}}',
             app_id, audio)
@@ -254,17 +308,66 @@ local function send_frame(ws, status, audio_b64, app_id, seq)
     return true
 end
 
+local function b64_decode_padded(s)
+    if type(s) ~= "string" or s == "" then
+        return nil
+    end
+    local okb, dec = pcall(crypto.base64_decode, s)
+    if okb and type(dec) == "string" and dec ~= "" then
+        return dec
+    end
+    local pad = (#s % 4)
+    if pad == 2 then
+        s = s .. "=="
+    elseif pad == 3 then
+        s = s .. "="
+    end
+    okb, dec = pcall(crypto.base64_decode, s)
+    if okb and type(dec) == "string" and dec ~= "" then
+        return dec
+    end
+    return nil
+end
+
 local function extract_finals(msg)
     local dok, obj = pcall(json.decode, msg)
     if not dok or type(obj) ~= "table" then
         return nil
     end
-    -- IAT v2 response: { code, message, sid, data: { result: { ws[], ls, sn }, status } }
-    local data = obj.data
-    if type(data) ~= "table" or type(data.result) ~= "table" then
+    local r = nil
+    -- SLM: payload.result.text is base64(JSON {sn,ls,ws})
+    if type(obj.payload) == "table" and type(obj.payload.result) == "table" then
+        local t = obj.payload.result.text
+        if type(t) == "string" and t ~= "" then
+            local decoded = t
+            if t:sub(1, 1) == "{" then
+                -- already JSON
+            else
+                local dec = b64_decode_padded(t)
+                if dec then
+                    decoded = dec
+                else
+                    print("[asr_iat] slm text b64 decode fail len=" .. #t .. " head=" .. t:sub(1, 40))
+                end
+            end
+            local dok2, inner = pcall(json.decode, decoded)
+            if dok2 and type(inner) == "table" then
+                r = inner
+            else
+                print("[asr_iat] slm inner json fail: " .. tostring(decoded):sub(1, 80))
+            end
+        end
+        if not r and type(obj.payload.result) == "table" then
+            r = obj.payload.result
+        end
+    end
+    -- IAT v2: data.result { ws[], ls, sn }
+    if not r and type(obj.data) == "table" and type(obj.data.result) == "table" then
+        r = obj.data.result
+    end
+    if type(r) ~= "table" then
         return nil
     end
-    local r = data.result
     local text = {}
     if type(r.ws) == "table" then
         for i = 1, #r.ws do
@@ -281,10 +384,9 @@ local function extract_finals(msg)
     end
     local joined = table.concat(text)
     if joined == "" then
-        return nil
+        return nil, r.ls == true, r
     end
-    -- IAT v2 returns incremental results per sn; return this segment's text + ls flag
-    return joined, r.ls == true
+    return joined, r.ls == true, r
 end
 
 local function stereo_pick_mono(stereo)
@@ -328,10 +430,12 @@ local function drain_iat(ws, state)
             if state.rx_n <= 5 then
                 print(string.format("[asr_iat] rx%d: %s", state.rx_n, tostring(data):sub(1, 200)))
             end
-            local piece, ls = extract_finals(data)
+            local piece, ls, rmeta = extract_finals(data)
             if piece then
-                -- IAT v2 returns incremental segments; accumulate all text
-                if state.accum then
+                -- Accumulate; SLM dwa=wpgs may replace earlier segments (pgs=rpl).
+                if rmeta and rmeta.pgs == "rpl" and state.accum then
+                    state.accum = piece
+                elseif state.accum then
                     state.accum = state.accum .. piece
                 else
                     state.accum = piece
@@ -341,6 +445,12 @@ local function drain_iat(ws, state)
                     state.ls = true
                 else
                     state.partial = state.accum
+                end
+                -- Real-time partial report (decoded text, not raw b64).
+                if state.partial and state.partial ~= state.last_partial then
+                    state.last_partial = state.partial
+                    _G.asr_partial_text = state.partial
+                    print("[asr_iat] PARTIAL: " .. state.partial)
                 end
             end
         elseif op == "closed" then
@@ -357,8 +467,19 @@ local function run()
     local app_id = string_arg("asr_app_id", nonempty(cfg.asr_app_id))
     local api_key = string_arg("asr_api_key", nonempty(cfg.asr_api_key))
     local api_secret = string_arg("asr_api_secret", nonempty(cfg.asr_api_secret))
-    local endpoint = normalize_asr_endpoint(string_arg("asr_endpoint", nonempty(cfg.asr_endpoint)))
-    print(string.format("[asr_iat] endpoint=%s", endpoint))
+    local engine = resolve_engine(
+        nonempty(cfg.asr_provider) or cfg.asr_engine,
+        string_arg("asr_engine", nonempty(cfg.asr_engine)))
+    local endpoint = normalize_asr_endpoint(
+        string_arg("asr_endpoint", nonempty(cfg.asr_endpoint)), engine)
+    print(string.format("[asr_iat] engine=%s endpoint=%s", engine, endpoint))
+    local send_opts = {
+        engine = engine,
+        domain = engine == "slm" and "slm" or "iat",
+        dwa = string_arg("asr_dwa", nonempty(cfg.asr_dwa) or (engine == "slm" and "wpgs" or "")),
+        dhw = string_arg("asr_dhw", nonempty(cfg.asr_dhw)),
+        res_id = string_arg("asr_res_id", nonempty(cfg.asr_res_id)),
+    }
     local timeout_ms = int_arg("timeout_ms", DEFAULT_TIMEOUT_MS, 1000, 120000)
     local duration_ms = int_arg("duration_ms", 8000, 500, 55000)
 
@@ -392,31 +513,54 @@ local function run()
         if ws then
             return ws
         end
-        local c, cerr = websocket.connect(url, { timeout = 10 })
-        if not c then
-            error("websocket connect failed: " .. tostring(cerr))
+        local last_err = nil
+        local okd, delaym2 = pcall(require, "delay")
+        for attempt = 1, 3 do
+            local c, cerr = websocket.connect(url, { timeout = 10 })
+            if c then
+                ws = c
+                print(string.format("[asr_iat] ws connected attempt=%d", attempt))
+                return ws
+            end
+            last_err = cerr
+            print(string.format("[asr_iat] ws connect fail attempt=%d err=%s", attempt, tostring(cerr)))
+            if okd and delaym2 and delaym2.delay_ms then
+                delaym2.delay_ms(250 * attempt)
+            end
         end
-        ws = c
-        return ws
+        error("websocket connect failed: " .. tostring(last_err))
     end
 
-    local state = { text = nil, partial = nil, ls = false, closed = false, last_raw = nil }
+    local state = { text = nil, partial = nil, ls = false, closed = false, last_raw = nil, last_partial = nil }
     local first = true
     local seq = 1
     local t0 = system.millis()
 
     local function send_mono(status, mono)
         local b64 = crypto.base64_encode(mono or "")
-        local ok, serr = send_frame(ws, status, b64, app_id, seq)
+        local ok, serr = send_frame(ws, status, b64, app_id, seq, send_opts)
         if not ok then
-            error("send frame failed: " .. tostring(serr))
+            -- Phase-3: drop stale socket and retry once as a fresh first frame.
+            print("[asr_iat] send frame failed, reconnect once: " .. tostring(serr))
+            pcall(function() if ws then ws:close() end end)
+            ws = nil
+            state.last_raw = nil
+            state.closed = false
+            ws = connect_ws()
+            seq = 1
+            first = true
+            ok, serr = send_frame(ws, 0, b64, app_id, seq, send_opts)
+            if not ok then
+                error("send frame failed: " .. tostring(serr))
+            end
         end
         seq = seq + 1
     end
 
     if stream then
-        -- Use the proven recorder pipeline (input:read yields near-silence on this board).
-        -- Capture + process first, connect right before the first frame.
+        -- Real-time path: short chunk record → send immediately → report PARTIAL
+        -- → end on silence (or duration cap). input:read is near-silent on this
+        -- board, so we keep using audio.recorder in slices.
         local audio = require("audio")
         local bm = require("board_manager")
         local codec, rate, ch, bits = bm.get_audio_codec_input_params("audio_adc")
@@ -424,43 +568,65 @@ local function run()
             error("get_audio_codec_input_params(audio_adc) failed")
         end
         local volume = int_arg("volume", 100, 0, 100)
-        local pre_roll_ms = int_arg("pre_roll_ms", 1200, 0, 5000)
         local speak_prompt = a.speak_prompt ~= false
         local min_peak = int_arg("min_peak", 0, 0, 32767)
-        local wav_path = "/ramfs/asr_stream.wav"
-        local dokd, delaym = pcall(require, "delay")
-        -- Record one clip and return (mono_pcm, peak_amplitude).
-        local function record_once(vol)
-            local inp = assert(audio.new_input({ codec, rate, ch, bits, volume = vol }))
-            local r = assert(audio.recorder({ input = inp }))
-            pcall(function()
-                -- Record immediately. A delay here loses the utterance that
-                -- already triggered VAD (user finishes before SPEAK_NOW).
-                if speak_prompt then
-                    print("[asr_iat] SPEAK_NOW 请开始说话")
-                end
-                r:record(wav_path, {
-                    duration_ms = duration_ms,
-                    sample_rate = SAMPLE_RATE,
-                    channels = 2,
-                    bits = 16,
-                })
-            end)
-            pcall(function() r:close() end)
-            pcall(function() inp:close() end)
-            local raw = storage.read_file(wav_path)
-            local mono, perr = parse_wav_pcm(raw)
+        local chunk_ms = int_arg("chunk_ms", 400, 100, 1000)
+        local silence_end_ms = int_arg("silence_end_ms", 1000, 200, 5000)
+        local MIN_USEFUL_PEAK = int_arg("min_makeup_peak", 2500, 0, 32767)
+        local TARGET_PEAK = 26000
+        local MAKEUP_SKIP_PEAK = 7000
+        local speech_level = (min_peak > 0) and math.floor(min_peak * 0.35) or 700
+        local wav_path = "/ramfs/asr_chunk.wav"
+        local dok, delay = pcall(require, "delay")
+        local inp = assert(audio.new_input({ codec, rate, ch, bits, volume = volume }))
+        local r = assert(audio.recorder({ input = inp }))
+        if speak_prompt then
+            print("[asr_iat] SPEAK_NOW 请开始说话")
+        end
+
+        local function apply_makeup(mono, peak)
+            if peak >= MAKEUP_SKIP_PEAK then
+                return mono
+            end
+            if peak < MIN_USEFUL_PEAK then
+                return mono
+            end
+            if peak >= TARGET_PEAK then
+                return mono
+            end
+            local scale = TARGET_PEAK / peak
+            if scale > 150 then scale = 150 end
+            local boosted = {}
+            for i = 1, #mono - 1, 2 do
+                local v = string.byte(mono, i) + string.byte(mono, i + 1) * 256
+                if v > 32767 then v = v - 65536 end
+                local s = math.floor(v * scale + 0.5)
+                if s > 32767 then s = 32767 end
+                if s < -32768 then s = -32768 end
+                local u = s + (s < 0 and 65536 or 0)
+                boosted[#boosted + 1] = string.char(u % 256, math.floor(u / 256) % 256)
+            end
+            return table.concat(boosted)
+        end
+
+        local function record_chunk()
             pcall(storage.remove, wav_path)
+            r:record(wav_path, {
+                duration_ms = chunk_ms,
+                sample_rate = SAMPLE_RATE,
+                channels = 2,
+                bits = 16,
+            })
+            local raw = storage.read_file(wav_path)
+            pcall(storage.remove, wav_path)
+            local mono, perr = parse_wav_pcm(raw)
             if not mono then
-                error("parse stream wav failed: " .. tostring(perr))
+                error("parse chunk wav failed: " .. tostring(perr))
             end
             local peak = 0
             local lsum = 0
             local nsamp = 0
-            -- Skip first ~250ms: I2S/codec open often spikes to 32767.
-            local skip_bytes = 8000
-            if skip_bytes >= #mono - 4 then skip_bytes = 0 end
-            for i = 1 + skip_bytes, #mono - 1, 2 do
+            for i = 1, #mono - 1, 2 do
                 local v = string.byte(mono, i) + string.byte(mono, i + 1) * 256
                 if v > 32767 then v = v - 65536 end
                 local av = v < 0 and -v or v
@@ -469,126 +635,158 @@ local function run()
                 nsamp = nsamp + 1
             end
             local lavg = (nsamp > 0) and math.floor(lsum / nsamp) or 0
-            _G.asr_last_lavg = lavg
-            return mono, peak
+            return mono, peak, lavg
         end
 
-        local pcm, pk, rec_info
-        pcm, pk = record_once(volume)
-        _G.asr_last_peak = pk
-        rec_info = { bytes = #pcm * 2, duration_ms = duration_ms }
-        print(string.format("[asr_iat] recorded %dms bytes=%d in %dms mono peak=%d vol=%d",
-                            duration_ms, rec_info.bytes, duration_ms, pk, volume))
-
-        -- Local energy VAD gate: skip cloud IAT when the clip is silence/noise.
-        if min_peak > 0 and pk < min_peak then
-            print(string.format("[asr_iat] VAD_SKIP peak=%d < min_peak=%d", pk, min_peak))
-            _G.asr_final_text = ""
-            _G.asr_skipped = true
-            return ""
-        end
-        -- Probe-only: never open WebSocket / never speak. wake_listen uses this.
         if a.local_only then
+            -- Probe only: sample until silence/max, never touch the network.
+            local total_peak = 0
+            local speech_ms = 0
+            local silence_ms = 0
+            while system.millis() - t0 < math.min(duration_ms, 1500) do
+                local _, peak, lavg = record_chunk()
+                if peak > total_peak then total_peak = peak end
+                _G.asr_last_lavg = lavg
+                if peak >= speech_level then
+                    speech_ms = speech_ms + chunk_ms
+                    silence_ms = 0
+                else
+                    silence_ms = silence_ms + chunk_ms
+                end
+                if speech_ms >= 200 and silence_ms >= silence_end_ms then
+                    break
+                end
+            end
+            pcall(function() r:close() end)
+            pcall(function() inp:close() end)
+            _G.asr_last_peak = total_peak
             print(string.format("[asr_iat] local_only peak=%d lavg=%d — no cloud",
-                                pk, _G.asr_last_lavg or 0))
+                                total_peak, _G.asr_last_lavg or 0))
             _G.asr_final_text = ""
             _G.asr_skipped = true
             _G.asr_skipped_reason = "local_only"
             return ""
         end
-        _G.asr_skipped = false
 
-        -- Auto-gain: if the capture's peak is too low, the on-board input gain
-        -- has drifted (PGA) and the stream is mostly noise. Re-record with a
-        -- higher PGA so the voice becomes recognisable again.
-        if pk < 3000 and volume < 100 then
-            local v2 = math.min(100, volume + 20)
-            print(string.format("[asr_iat] low signal, retry gain vol=%d->%d", volume, v2))
-            local pcm2, pk2 = record_once(v2)
-            if pk2 > pk then
-                pcm, pk = pcm2, pk2
-                print(string.format("[asr_iat] retry peak=%d", pk2))
+        -- Local-first: buffer chunks and only open cloud after speech is real.
+        -- Connecting on every soft_hit burns iFlytek quota on room noise.
+        local pieces = {}
+        local pending = {}
+        local total_peak = 0
+        local speech_ms = 0
+        local silence_ms = 0
+        local sent = 0
+        local first = true
+        local cloud_open = false
+        local function flush_pending()
+            if not cloud_open then
+                return
             end
-        end
-
-        -- Digital makeup gain: scale PCM so peak sits near 80% of full scale.
-        -- Only apply if signal is above noise floor (pk >= MIN_USEFUL_PEAK);
-        -- otherwise the amplified noise triggers iFlytek 10106 / empty FINAL.
-        local TARGET_PEAK = 26000
-        -- Recorder path often shows pk≈3k on room noise; makeup on that is useless.
-        local MIN_USEFUL_PEAK = int_arg("min_makeup_peak", 2500, 0, 32767)
-        local MAKEUP_SKIP_PEAK = 7000
-        if pk >= MAKEUP_SKIP_PEAK then
-            print(string.format("[asr_iat] skip makeup pk=%d (already loud)", pk))
-        elseif pk >= MIN_USEFUL_PEAK and pk < TARGET_PEAK then
-            local scale = TARGET_PEAK / pk
-            -- Cap at 150x to avoid extreme noise amplification
-            if scale > 150 then scale = 150 end
-            local boosted = {}
-            for i = 1, #pcm - 1, 2 do
-                local v = string.byte(pcm, i) + string.byte(pcm, i + 1) * 256
-                if v > 32767 then v = v - 65536 end
-                local s = math.floor(v * scale + 0.5)
-                if s > 32767 then s = 32767 end
-                if s < -32768 then s = -32768 end
-                local u = s + (s < 0 and 65536 or 0)
-                boosted[#boosted + 1] = string.char(u % 256, math.floor(u / 256) % 256)
-                if (i % 8192) == 8191 then
-                    delaym.delay_ms(1)
+            for i = 1, #pending do
+                local out = pending[i]
+                local offset = 1
+                while offset <= #out do
+                    local frame = out:sub(offset, offset + 1279)
+                    offset = offset + #frame
+                    send_mono(first and 0 or 1, frame)
+                    first = false
+                    sent = sent + 1
+                    drain_iat(ws, state)
                 end
             end
-            pcm = table.concat(boosted)
-            print(string.format("[asr_iat] digital makeup x%.1f -> peak~%d", scale, TARGET_PEAK))
-        elseif pk < MIN_USEFUL_PEAK then
-            print(string.format("[asr_iat] signal too low (pk=%d < %d), skip makeup — speak closer/louder",
-                                pk, MIN_USEFUL_PEAK))
+            pending = {}
         end
-        local lavg = _G.asr_last_lavg or 0
-        if pk >= 4000 and lavg > 0 and lavg < 80 then
-            print(string.format("[asr_iat] WARN peak=%d lavg=%d impulse-like (not sustained speech?)", pk, lavg))
-        end
-        local dok, delay = pcall(require, "delay")
-        ws = connect_ws()
-        local frame_bytes = 1280
-        local offset = 1
-        local sent = 0
-        while offset <= #pcm do
+        while true do
             if system.millis() - t0 > timeout_ms then
                 break
             end
-            if state.closed or (state.last_raw and state.last_raw:find('"code":%s*[1-9]')) then
+            if cloud_open and (state.closed or (state.last_raw and state.last_raw:find('"code":%s*[1-9]'))) then
                 print("[asr_iat] stop after server error, sent=" .. sent)
                 break
             end
-            local chunk = pcm:sub(offset, offset + frame_bytes - 1)
-            offset = offset + #chunk
-            send_mono(first and 0 or 1, chunk)
-            first = false
-            sent = sent + 1
-            drain_iat(ws, state)
-            -- ponytail: yield per-frame so the task_wdt stays fed during the long
-            -- base64+send loop; the 40ms pacing below is enough on its own but the
-            -- per-frame sub/b64 burst can exceed the 5s task_wdt window when the
-            -- previous parse loop already ate part of it.
-            if dok and delay and delay.delay_ms then
-                delay.delay_ms(1)
-            end
-            -- Wait for first ACK before flooding the rest.
-            if sent == 1 then
-                local ack_t0 = system.millis()
-                while system.millis() - ack_t0 < 2000 and not state.last_raw do
-                    drain_iat(ws, state)
-                    if dok and delay and delay.delay_ms then
-                        delay.delay_ms(20)
+            local mono, peak, lavg = record_chunk()
+            if peak > total_peak then total_peak = peak end
+            _G.asr_last_lavg = lavg
+            local out = apply_makeup(mono, peak)
+            pieces[#pieces + 1] = out
+            if peak >= speech_level then
+                speech_ms = speech_ms + chunk_ms
+                silence_ms = 0
+                if not cloud_open and peak >= min_peak then
+                    -- Confirmed speech: now spend a cloud session.
+                    ws = connect_ws()
+                    cloud_open = true
+                    pending[#pending + 1] = out
+                    flush_pending()
+                    local ack_t0 = system.millis()
+                    while system.millis() - ack_t0 < 1500 and not state.last_raw do
+                        drain_iat(ws, state)
+                        if dok and delay and delay.delay_ms then
+                            delay.delay_ms(20)
+                        end
+                    end
+                elseif cloud_open then
+                    pending[#pending + 1] = out
+                    flush_pending()
+                else
+                    pending[#pending + 1] = out
+                end
+            else
+                silence_ms = silence_ms + chunk_ms
+                if cloud_open then
+                    pending[#pending + 1] = out
+                    flush_pending()
+                else
+                    pending[#pending + 1] = out
+                    -- No real speech within the window: never open cloud.
+                    if speech_ms == 0 and (system.millis() - t0) >= math.min(duration_ms, 2000) then
+                        print("[asr_iat] no cloud: quiet window peak=" .. total_peak)
+                        break
                     end
                 end
-                print("[asr_iat] after_first_ack sent=" .. sent)
+            end
+            if cloud_open then
+                drain_iat(ws, state)
+            end
+            if state.ls or state.closed then
+                break
+            end
+            local elapsed = system.millis() - t0
+            if elapsed >= duration_ms then
+                break
+            end
+            if speech_ms >= 200 and silence_ms >= silence_end_ms then
+                print(string.format("[asr_iat] silence end speech_ms=%d silence_ms=%d",
+                                    speech_ms, silence_ms))
+                break
             end
             if dok and delay and delay.delay_ms then
-                delay.delay_ms(40)
+                delay.delay_ms(5)
             end
         end
-        print(string.format("[asr_iat] sent_frames=%d", sent))
+        pcall(function() r:close() end)
+        pcall(function() inp:close() end)
+        _G.asr_last_peak = total_peak
+        local pcm = table.concat(pieces)
+        print(string.format("[asr_iat] streamed chunks peak=%d frames=%d bytes=%d speech_ms=%d",
+                            total_peak, sent, #pcm, speech_ms))
+        if min_peak > 0 and total_peak < min_peak then
+            print(string.format("[asr_iat] VAD_SKIP peak=%d < min_peak=%d", total_peak, min_peak))
+            _G.asr_final_text = ""
+            _G.asr_skipped = true
+            if cloud_open and ws then
+                pcall(function() ws:close() end)
+            end
+            return ""
+        end
+        if not cloud_open then
+            print(string.format("[asr_iat] no cloud: peak=%d below speech gate", total_peak))
+            _G.asr_final_text = ""
+            _G.asr_skipped = true
+            _G.asr_skipped_reason = "no_speech_cloud_gate"
+            return ""
+        end
+        _G.asr_skipped = false
     else
         local raw = storage.read_file(path)
         if not raw or #raw == 0 then

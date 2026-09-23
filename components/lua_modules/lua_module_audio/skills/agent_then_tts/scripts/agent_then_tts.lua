@@ -147,6 +147,53 @@ local function file_size(path)
     return (st and st.size) or 0
 end
 
+-- Extract path[from_byte:] into a new MP3, aligned to the next frame sync.
+local function write_remainder(src_path, from_byte, dst_path)
+    local raw = storage.read_file(src_path)
+    if type(raw) ~= "string" or from_byte >= #raw then
+        return nil
+    end
+    local i = from_byte + 1
+    if from_byte > 0 then
+        -- Skip partial frame: next 0xFF Ex/Fx sync (MPEG audio).
+        while i < #raw - 1 do
+            local b = raw:byte(i)
+            local b2 = raw:byte(i + 1)
+            if b == 0xFF and b2 and (b2 >= 0xE0) then
+                break
+            end
+            i = i + 1
+        end
+        if i >= #raw - 1 then
+            return nil
+        end
+    end
+    local chunk = raw:sub(i)
+    if #chunk < 4 then
+        return nil
+    end
+    pcall(storage.remove, dst_path)
+    local ok = pcall(storage.write_file, dst_path, chunk)
+    if not ok then
+        return nil
+    end
+    return dst_path, #chunk
+end
+
+local function parse_job_id(raw)
+    if type(raw) ~= "string" then
+        return nil
+    end
+    -- thread.start: "Started Lua job <id> (name=...)"
+    -- thread.get:   "job_id=<id>\nstatus=..."
+    -- Never capture trailing prose after the id.
+    local id = raw:match("job_id=([%w%-_]+)")
+    if id then
+        return id
+    end
+    return raw:match("Started Lua job ([%w%-_]+)")
+end
+
 local function job_finished(job_id)
     if not job_id or job_id == "" then
         return false
@@ -159,10 +206,10 @@ local function job_finished(job_id)
     return false
 end
 
--- Ready when enough bytes, or download already finished (short replies), or size stopped growing.
+-- Ready only when min_play bytes exist, or the download job has finished.
+-- A paused HTTP body must NOT look "ready" — player sees only what is on disk
+-- at open time (partial MP3 = truncated/empty speech).
 local function wait_stream_ready(path, min_bytes, deadline_ms, job_id)
-    local last = 0
-    local stable = 0
     while true do
         local size = file_size(path)
         if size >= min_bytes then
@@ -171,22 +218,13 @@ local function wait_stream_ready(path, min_bytes, deadline_ms, job_id)
         if job_finished(job_id) and size > 0 then
             return size
         end
-        if size == last and size > 0 then
-            stable = stable + 1
-            if stable >= 8 then
-                return size
-            end
-        else
-            stable = 0
-        end
-        last = size
         if system.millis() >= deadline_ms then
             if size > 0 then
                 return size
             end
             error(string.format("stream timeout: only %d bytes (need %d)", size, min_bytes))
         end
-        delay.delay_ms(20)
+        delay.delay_ms(30)
     end
 end
 
@@ -254,18 +292,66 @@ local function run_stream(cfg, spoken, url, volume, tts_timeout, min_play)
     if not started then
         error(string.format("failed to start tts download: %s", tostring(start_out)))
     end
-    local job_id = start_out
+    -- thread.start returns full status text (job_id=...\nname=...\nstatus=...).
+    local job_id = parse_job_id(start_out) or "tts_http"
+    print(string.format("[agent_then_tts] tts job_id=%s", tostring(job_id)))
 
     local ready_size = wait_stream_ready(out_path, min_play, t0 + tts_timeout, job_id)
-    local settled = settle_stream(out_path, STREAM_SETTLE_MS)
     local ttfb = system.millis() - t0
-    print(string.format("[agent_then_tts] stream ready bytes=%d settled=%d ttfb_to_play_ms=%d",
-                        ready_size, settled, ttfb))
+    print(string.format("[agent_then_tts] stream ready bytes=%d ttfb_to_play_ms=%d",
+                        ready_size, ttfb))
 
+    -- 边下边播: play what is on disk; when the file EOF hits while HTTP is
+    -- still writing, extract the new tail (frame-aligned) and continue.
     local player, output = open_player(volume)
+    local consumed = 0
+    local seg_path = "/ramfs/tts_seg.mp3"
     local pok, perr = xpcall(function()
-        play_path(player, out_path)
+        while true do
+            local size = file_size(out_path)
+            if size > consumed then
+                local play_file = out_path
+                local play_from = consumed
+                if consumed > 0 then
+                    local seg, seg_len = write_remainder(out_path, consumed, seg_path)
+                    if seg then
+                        play_file = seg
+                        play_from = consumed + (size - consumed) - seg_len
+                        -- consumed advances by bytes we are about to play
+                        consumed = size
+                    else
+                        consumed = size
+                        play_file = nil
+                    end
+                else
+                    consumed = size
+                end
+                if play_file then
+                    print(string.format("[agent_then_tts] play %s (from~%d size=%d)",
+                                        play_file, play_from, file_size(play_file)))
+                    play_path(player, play_file)
+                end
+            end
+            if job_finished(job_id) then
+                local final_size = file_size(out_path)
+                if final_size <= consumed then
+                    break
+                end
+                -- Tail still on disk: loop once more to play remainder.
+            end
+            if system.millis() >= t0 + tts_timeout then
+                print("[agent_then_tts] stream play deadline")
+                break
+            end
+            if file_size(out_path) <= consumed then
+                if job_finished(job_id) then
+                    break
+                end
+                delay.delay_ms(40)
+            end
+        end
     end, debug.traceback)
+    pcall(storage.remove, seg_path)
     -- Let I2S TX drain before tearing down the shared full-duplex port.
     delay.delay_ms(200)
     pcall(function() player:close() end)
@@ -276,8 +362,8 @@ local function run_stream(cfg, spoken, url, volume, tts_timeout, min_play)
         pcall(storage.remove, out_path)
         error(perr)
     end
-    wait_download_job(job_id, 5000)
-    -- RAMFS clip is disposable; remove after play so the next turn starts clean.
+    wait_download_job(job_id, 3000)
+    delay.delay_ms(80)
     pcall(storage.remove, out_path)
     print("[agent_then_tts] cleaned " .. out_path)
 end
@@ -352,15 +438,16 @@ local function run()
     local stream = bool_arg("tts_stream", true)
     local min_play = int_arg("tts_min_play_bytes", 0, 4096, 256 * 1024)
     if min_play == 0 then
-        -- Short replies: start earlier so stream does not feel like full-file wait.
+        -- First-byte gate only; continuation covers the rest (真正边下边播).
         local spoken_len = #tts_excerpt(reply, max_sentences, max_chars)
         if spoken_len <= 20 then
-            min_play = 4096
+            min_play = 8192
         elseif spoken_len <= 60 then
-            min_play = 16384
-        elseif spoken_len <= 150 then
-            min_play = 24576
+            min_play = 12288
         else
+            min_play = 16384
+        end
+        if min_play > DEFAULT_MIN_PLAY_BYTES then
             min_play = DEFAULT_MIN_PLAY_BYTES
         end
     end
