@@ -17,8 +17,13 @@
 | S2 设备侧流式 TTS | ✅ 完成 | T30–T34 |
 | A′+B′ 讯飞 IAT + 麦克风 | ✅ **软件链路已通** | T35–T36，IAT v2 协议已修复 |
 | **C′ 唤醒词「小依」+ VAD** | ✅ **验收通过（wake_smoke）** | peak=12962，IAT「小一」→ 别名命中，woke_count=1 |
-| 完整语音闭环（常驻） | ✅ **2026-09-21 10:12 日志验证** | 小q → 我在 → 中文 REPLY → TTS；loose-wake 也可进 Agent |
+| 完整语音闭环（常驻） | ✅ **2026-09-21 10:12 日志验证** | 小q → 我在 → 中文 REPLY → TTS；**无唤醒不再进 Agent**（2026-09-22 收紧） |
 | keepalive | ✅ `already alive status=running` | 无误杀 |
+| 误触发收紧 | ✅ 2026-09-22/23 | 无唤醒仅本地动词；VAD 2000/350 |
+| 唤醒词截断 | ✅ 2026-09-23 | hit/soft_hit 即录；同句命令跳过「我在」 |
+| TTS job_id 空等 | ✅ 2026-09-23 | 解析 `Started Lua job <id>`，不再卡 30s |
+| **实时 ASR（边录边推）** | ✅ 2026-09-23 | 400ms 切片、`PARTIAL:`、静音收尾 |
+| 云端额度泄漏 | 🔄 **已改待烧录** | soft_hit 不再立刻连云；peak≥min_peak 才开 WS；quiet 2s 本地丢弃 |
 | 仍待改进 | 识别歪句 / 无实时搜索 | ASR 听写误差；语音路径禁 web_search，新闻/天气会反问 |
 | 「一直聆听」刷屏 | 🔄 **已改待烧录** | asr_peak 先本地 1.2s 探测；安静不 SPEAK_NOW/不上云；6 次安静后回 analyzer |
 | 语气词当命令 | 🔄 **已改待烧录** | UTF-8 字数门槛；「好/好的/行…」不进 Agent |
@@ -277,7 +282,7 @@ python tools/esp_voice_service_enable.py
 | 唤醒「小姨」→「我在」 | ✅ `WAKE WORD DETECTED: 小姨` + TTS |
 | keepalive | ✅ 多次 `already alive status=running` |
 | 天气命令 → 直调搜索 | ✅ `查询一下今天的天气` → `live web_search` → `SPOKEN` → 播放 |
-| loose-wake 天气 | ✅ `这天气` / `今天天气怎么样？` 也进搜索 |
+| loose-wake 天气 | ✅ 旧行为；**2026-09-22 起无唤醒不进 Agent** |
 | 挂机 / ramfs | ✅ 无 resize 报错，`tts_live.mp3` 有 cleaned |
 | 安静 VAD | ✅ `VAD window silent, keep analyzer listening` |
 | 双次「我在」 | ✅ 已修并验证（`ack already played`） |
@@ -325,12 +330,66 @@ python tools/esp_voice_service_enable.py
 
 ---
 
+## Phase 3 Always-on polish（T52–T54，原 voice-interaction.md §6）
+
+| 项 | 状态 |
+|----|------|
+| 半双工防回声 | TTS 前后 `echo_guard_ms`（默认 500ms），VAD 忽略 `echo`；「我在」后等 ring-out 再开命令窗 |
+| IAT 重连 | `websocket.connect` 重试 3 次；发送失败清 socket 后以首帧重连重试 1 次 |
+| 60s 存活滚动 | 服务循环 `rollover_ms=60000` 打点；约 10 分钟强制 SNTP（HMAC 防时钟漂移） |
+| 热词 dhw/res_id | 📋 未做（可选） |
+| SiliconFlow ASR 调试路径 | 📋 未做（可选；定位为 file debug，非流式） |
+| 中英识别大模型 | 🔄 协议已通（`engine=slm` code=0）；**base64 解包已修待测**（曾 FINAL 空）；dhw 改为 `dhw=utf-8;词\|词` |
+| 设备验收大模型 | ⏳ 再对麦一句中文，看 `FINAL:` 是否有字 |
+
+### TTS 边下边播（T31/T32，2026-09-22）
+
+- `save_direct` 边下边写 `/ramfs/tts_live.mp3`；约 8–16KB 开播。
+- 播放到当前 EOF 后若 HTTP 未完：从 `consumed` 切尾段（对齐 `0xFF` 帧同步）**续播**，直到 job 结束。
+- 修复厦门天气截断：勿把 HTTP 停顿当「整包就绪」。
+
+### 误触发收紧（2026-09-22 13:57 / 15:26 日志）
+
+| 误触发 | 原因 | 修复 |
+|--------|------|------|
+| `达到100%` → 调音量 | 裸 `(N)%` 匹配 | 仅「音量」语境下的百分比 |
+| `你这大声音` → 调音量 | 裸「大声」 | 仅「大声点/大点声/音量大…」 |
+| `1今天天气` → 查天气 | loose-wake 过松 | 无唤醒仅高精度本地动词 |
+| `厦门天气怎么样？` / `现在几点？` / `网易云音乐点击播放` / 长闲聊含「时间」→ Agent | `is_command_like` short_keys 日常词短路 | **去掉 loose-wake 进 Agent**；无唤醒只留音量/静音/开关语音 |
+| 环境闲聊大量 VAD hit 进 ASR | `vad_threshold=1200` + `hold=200ms` 过松 | 默认/产品入口改为 **2000 / 350ms**（`voice_service` + `voice_keepalive` + `wake_listen`） |
+| 说「小依天气怎么样」ASR 只有「天气怎么样」 | VAD hit 后再等 `hold=350ms` 才开录，截掉句首唤醒词 | **hit 立刻开录**；强起音（peak≥thr+800）单次 poll 即 hit |
+
+无唤醒可执行：关闭/打开语音、静音、**音量/大声点/小声点**。天气/时间/播放/Agent **必须**带「小依/小Q」。follow-up 窗口内仍可免唤醒续句。
+
+**额度评估（2026-09-23 22:54 日志，约 2 分钟）**：`ws connected`≈13 次，真正 FINAL 仅 6；大量 soft_hit（peak 1k–2k 环境声）也开云端。实时本身不是主因，**过早 connect** 才是。已本地门控后再连云。
+
+**离线 ASR 评估结论**：
+- Whisper / Vosk / sherpa 自由句：**放不进** ESP32-S3（模型 30MB+，实时算力不够）
+- **ESP-SR WakeNet + MultiNet**：**可行**，官方为 S3+PSRAM；唤醒离线 + 固定指令集离线；自由句仍上云
+- 推荐混合：本地门控省额度（已做）→ WakeNet 离线唤醒 → MultiNet 覆盖「天气/时间/音量」→ 其余才 cloud ASR
+
+**唤醒词被截（2026-09-23 21:45/22:03 日志）**：`FINAL` 只有「天气怎么样？/明天气怎么样？」无「小依」。原因：(1) hit 后等 hold 再开录；(2) 无 pre-roll。已改 hit/soft_hit 即录 + 同句命令跳过「我在」。另：`thread.start` 返回整段 `job_id=...` 文本被当成 id，`thread.get` 永远查不到 → TTS 卡满 30s 超时；已解析 `job_id=`。若连贯说仍丢词，两步：「小依」→「我在」→「天气怎么样」。
+
+- 网页「识别引擎」听写 ↔ 中英大模型：**兼容可互切**（协议/endpoint/结果解析自动分支）。
+- SiliconFlow 档位**未实现客户端**，不可当第三引擎。
+- SLM：`text` base64 需补 padding；`dhw=utf-8;词1|词2`；`dwa=wpgs` 可选。
+
+### ASR 引擎评估备忘（2026-09-22，只讨论）
+
+- 听写流式：`wss://iat-api.xfyun.cn/v2/iat`，`common/business/data`，domain `iat` — **现用主路径**
+- 中英大模型：`wss://iat.xf-yun.com/v1`，`header/parameter/payload`，domain **`slm`**，`payload.result.text` base64；202 方言 + dwa/dhw/res_id — **值得网页可选**
+- SiliconFlow：HTTP transcriptions 文件上传 — **不做流式主路径**
+
+**参数：** `echo_guard_ms`（100–3000，默认 500）、`rollover_ms`（默认 60000）。
+
+---
+
 ## 关键文件
 
 | 文件 | 说明 |
 |------|------|
 | `components/lua_modules/lua_module_audio/skills/asr_iat/scripts/asr_iat_file.lua` | IAT v2 客户端核心 |
-| `components/lua_modules/lua_module_audio/skills/wake_listen/scripts/wake_listen.lua` | 唤醒词 + VAD 监听（`service=true` 常驻） |
+| `components/lua_modules/lua_module_audio/skills/wake_listen/scripts/wake_listen.lua` | 唤醒词 + VAD 监听（`service=true` 常驻；无唤醒不进 Agent） |
 | `components/lua_modules/lua_module_audio/skills/voice_service/scripts/voice_keepalive.lua` | 阶段1 保活/自动重启 |
 | `components/lua_modules/lua_module_audio/skills/voice_service/scripts/voice_setup_scheduler.lua` | 写入 DATA scheduler 保活项 |
 | `components/lua_modules/lua_module_audio/skills/voice_service/scripts/voice_setup_router.lua` | 写入 DATA router 开机/保活规则 |
@@ -366,6 +425,6 @@ python tools/run_wake.py 300000
 ## 尚未做 / 下一步
 
 1. **烧录 + 验收 C′**：编译烧录后，先跑 `wake_only`，靠近麦说「小依」，看 `VAD hit` / `WAKE WORD DETECTED`。
-2. **调 `vad_threshold`**：漏检调低，环境噪声误触发调高（默认 1400）。
+2. **调 `vad_threshold`**：漏检调低，环境噪声误触发调高（默认 2000，产品入口 voice_service/keepalive 同步）。
 3. **E 完整闭环（真语音）**：唤醒 + 命令 + agent + TTS；产品路径禁止 skill 内嵌套 `agent_ask`。
 4. **双麦 `RATIO` 标定**：当前直接取 L 声道，优先级降低。

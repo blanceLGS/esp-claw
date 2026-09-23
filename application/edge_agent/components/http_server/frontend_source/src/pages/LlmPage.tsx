@@ -532,12 +532,24 @@ export const LlmPage: Component = () => {
           <div class="grid gap-3 sm:grid-cols-2 pt-2">
             <SelectInput
               label={t('voiceAsrProvider') as string}
+              hint={t('voiceAsrEngineHint') as string}
               value={tab.form.asr_provider}
-              onChange={(event) => tab.setForm('asr_provider', event.currentTarget.value)}
+              onChange={(event) => {
+                const v = event.currentTarget.value;
+                tab.setForm('asr_provider', v);
+                if (v === 'iflytek_bigmodel') {
+                  tab.setForm('asr_endpoint', 'wss://iat.xf-yun.com/v1');
+                } else if (v === 'iflytek') {
+                  tab.setForm('asr_endpoint', 'wss://iat-api.xfyun.cn/v2/iat');
+                } else if (v === 'siliconflow') {
+                  tab.setForm('asr_endpoint', 'https://api.siliconflow.cn/v1');
+                }
+              }}
             >
               <option value="">{t('voiceAsrProviderNone') as string}</option>
-              <option value="siliconflow">{t('voiceAsrProviderSiliconFlow') as string}</option>
               <option value="iflytek">{t('voiceAsrProviderIflytek') as string}</option>
+              <option value="iflytek_bigmodel">{t('voiceAsrProviderIflytekBigmodel') as string}</option>
+              <option value="siliconflow">{t('voiceAsrProviderSiliconFlow') as string}</option>
             </SelectInput>
             <TextInput
               label={t('voiceWakeWords') as string}
@@ -576,7 +588,7 @@ export const LlmPage: Component = () => {
                 onInput={(event) => tab.setForm('asr_endpoint', event.currentTarget.value)}
               />
             </Show>
-            <Show when={tab.form.asr_provider === 'iflytek'}>
+            <Show when={tab.form.asr_provider === 'iflytek' || tab.form.asr_provider === 'iflytek_bigmodel'}>
               <TextInput
                 label={t('voiceAsrAppId') as string}
                 value={tab.form.asr_app_id}
@@ -600,7 +612,7 @@ export const LlmPage: Component = () => {
                 full
                 label={t('voiceAsrEndpoint') as string}
                 hint={t('voiceAsrIflytekEndpointHint') as string}
-                placeholder="wss://iat.xf-yun.com/v1"
+                placeholder={tab.form.asr_provider === 'iflytek_bigmodel' ? 'wss://iat.xf-yun.com/v1' : 'wss://iat-api.xfyun.cn/v2/iat'}
                 value={tab.form.asr_endpoint}
                 onInput={(event) => tab.setForm('asr_endpoint', event.currentTarget.value)}
               />

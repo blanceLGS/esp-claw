@@ -252,6 +252,8 @@ LLM page → POST config (groups: llm + voice)
 - Hotwords `dhw` / `res_id`.  
 - Optional SiliconFlow ASR file debug path.
 
+**2026-09-22 progress:** reconnect + echo-guard + 60s heartbeat/SNTP refresh landed in `wake_listen` / `asr_iat_file`. `dhw`/`res_id` and SiliconFlow ASR debug still open.
+
 **Note:** Shine MP3 encode **not required** for iFlytek PCM path; optional later for SiliconFlow ASR fallback.
 
 ---

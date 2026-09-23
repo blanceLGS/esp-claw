@@ -66,7 +66,7 @@ typedef struct {
 #define APP_DEFAULT_TTS_BASE_URL             "https://api.siliconflow.cn/v1"
 #define APP_DEFAULT_TTS_VOLUME               "80"
 #define APP_DEFAULT_VOICE_ENABLE             "true"
-#define APP_DEFAULT_ASR_ENDPOINT             "wss://iat.xf-yun.com/v1"
+#define APP_DEFAULT_ASR_ENDPOINT             "wss://iat-api.xfyun.cn/v2/iat"
 
 static const app_config_field_t s_fields[] = {
     APP_CONFIG_FIELD(wifi_ssid, "wifi_ssid", APP_WIFI_SSID),

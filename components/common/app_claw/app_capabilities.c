@@ -458,6 +458,12 @@ static esp_err_t app_cap_voice_config_get(const char *input_json,
     cJSON_AddStringToObject(root, "tts_voice", config->tts_voice);
     cJSON_AddStringToObject(root, "tts_volume", config->tts_volume);
     cJSON_AddStringToObject(root, "asr_provider", config->asr_provider);
+    cJSON_AddStringToObject(root, "asr_engine",
+                            (strcmp(config->asr_provider, "iflytek_bigmodel") == 0 ||
+                             strcmp(config->asr_provider, "slm") == 0)
+                                ? "slm" : "iat");
+    cJSON_AddStringToObject(root, "asr_dwa", "");
+    cJSON_AddStringToObject(root, "asr_dhw", config->voice_wake_words);
     cJSON_AddStringToObject(root, "asr_api_key", config->asr_api_key);
     cJSON_AddStringToObject(root, "asr_api_secret", config->asr_api_secret);
     cJSON_AddStringToObject(root, "asr_app_id", config->asr_app_id);
